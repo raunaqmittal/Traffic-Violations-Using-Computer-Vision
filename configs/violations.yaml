@@ -7,8 +7,11 @@ violations:
   helmet:
     enabled: true
     auto_approve_confidence: 0.88   # records >= this are auto-flagged; below go to review queue
-    # Head crop region: top fraction of the motorcycle bounding box used as head ROI
-    head_roi_fraction: 0.35         # top 35% of the motorcycle bbox height
+    # Upward expansion factor when associating a no-helmet head detection to a
+    # motorcycle box (the rider's head sits above the COCO motorcycle box).
+    head_roi_fraction: 0.35
+    # Treat an improperly-worn ("invalid") helmet as a violation too.
+    flag_invalid_helmet: false
 
   seatbelt:
     enabled: true
@@ -23,7 +26,7 @@ violations:
   triple_riding:
     enabled: true
     auto_approve_confidence: 0.95   # rule-based so always 1.0; threshold is effectively a no-op
-    min_person_overlap_iou: 0.20    # person bbox must overlap motorcycle bbox by at least this IoU
+    min_person_overlap_ratio: 0.5   # fraction of a person bbox that must lie inside the motorcycle bbox
 
   wrong_side:
     enabled: true
@@ -46,7 +49,7 @@ violations:
     # Minimum fraction of green pixels to classify as "green"
     green_pixel_fraction: 0.10
 
-  parking:
+  illegal_parking:
     enabled: true
     auto_approve_confidence: 0.95   # rule-based; threshold is a no-op
     # Vehicle must be stationary inside a no-parking polygon for this many seconds to be flagged

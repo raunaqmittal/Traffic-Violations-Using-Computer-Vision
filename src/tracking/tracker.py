@@ -1,113 +1,117 @@
 """
-Multi-object tracker wrapping Ultralytics ByteTrack.
-Maintains per-track centroid history for use by rule-based violation modules.
+Lightweight multi-object tracker (greedy IoU association).
+
+We deliberately do NOT call Ultralytics' internal BYTETracker: it is a private
+API whose constructor and update signatures change between releases (and broke
+on ultralytics 8.4.x). For image-based / short-clip traffic enforcement this
+self-contained IoU tracker is robust, deterministic, dependency-free, and gives
+exactly what the violation modules need: stable track IDs plus per-track
+centroid history.
+
+Association: greedy IoU matching of current detections to existing tracks; an
+unmatched detection starts a new track; a track unseen for `track_buffer`
+frames is dropped.
 """
 
-import numpy as np
 from collections import defaultdict, deque
-from ultralytics import YOLO
-from src.models import Detection, TrackedObject
 
+import numpy as np
+
+from src.models import Detection, TrackedObject
 
 _HISTORY_LEN = 60   # frames of centroid history to keep per track
 
 
 class Tracker:
-    def __init__(self, track_thresh: float = 0.50, track_buffer: int = 30, match_thresh: float = 0.80):
+    def __init__(
+        self,
+        track_thresh: float = 0.50,
+        track_buffer: int = 30,
+        match_thresh: float = 0.80,
+        iou_gate: float = 0.3,
+    ):
+        # track_thresh: minimum detection confidence to track.
+        # track_buffer: frames to keep a lost track alive before dropping it.
+        # match_thresh: retained for config compatibility (ByteTrack-era param).
+        # iou_gate: minimum IoU for a detection to match an existing track.
         self._track_thresh = track_thresh
         self._track_buffer = track_buffer
-        self._match_thresh = match_thresh
-        # centroid_history[track_id] = deque of (cx, cy) tuples
+        self._iou_gate = iou_gate
+
+        self._next_id = 1
+        # tid -> {"bbox", "class_name", "score", "last_frame"}
+        self._tracks: dict[int, dict] = {}
         self._centroid_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=_HISTORY_LEN))
-        # last_seen class per track id
-        self._class_map: dict[int, str] = {}
 
     def update(self, detections: list[Detection], frame: np.ndarray, frame_id: int) -> list[TrackedObject]:
-        """
-        Run ByteTrack on the current frame's detections.
-        Returns a list of TrackedObject with stable IDs and centroid history.
-        """
-        if not detections:
-            return []
+        dets = [d for d in detections if d.confidence >= self._track_thresh]
 
-        boxes_xyxy = np.array([d.bbox for d in detections], dtype=np.float32)
-        scores = np.array([d.confidence for d in detections], dtype=np.float32)
-        class_names = [d.class_name for d in detections]
+        # Build candidate (iou, tid, det_index) matches, then assign greedily.
+        candidates = []
+        for tid, info in self._tracks.items():
+            for di, d in enumerate(dets):
+                iou = _iou(info["bbox"], d.bbox)
+                if iou >= self._iou_gate:
+                    candidates.append((iou, tid, di))
+        candidates.sort(reverse=True)
 
-        # Build ultralytics-compatible results manually using ByteTrack internals
-        # via the model-free track call.
-        # Ultralytics exposes ByteTrack through YOLO.track(); here we call the
-        # tracker directly to avoid needing a model object.
-        try:
-            from ultralytics.trackers.byte_tracker import BYTETracker
-        except ImportError:
-            from ultralytics.trackers import BYTETracker
+        matched_tids: set[int] = set()
+        matched_dets: set[int] = set()
+        det_to_tid: dict[int, int] = {}
+        for iou, tid, di in candidates:
+            if tid in matched_tids or di in matched_dets:
+                continue
+            matched_tids.add(tid)
+            matched_dets.add(di)
+            det_to_tid[di] = tid
 
-        if not hasattr(self, "_byte_tracker"):
-            args = type("Args", (), {
-                "track_thresh": self._track_thresh,
-                "track_buffer": self._track_buffer,
-                "match_thresh": self._match_thresh,
-                "mot20": False,
-            })()
-            self._byte_tracker = BYTETracker(args, frame_rate=10)
+        active: list[TrackedObject] = []
+        for di, d in enumerate(dets):
+            tid = det_to_tid.get(di)
+            if tid is None:
+                tid = self._next_id
+                self._next_id += 1
 
-        h, w = frame.shape[:2]
-        # ByteTracker expects [x1, y1, x2, y2, score]
-        dets = np.column_stack([boxes_xyxy, scores])
-        tracks = self._byte_tracker.update(dets, [h, w], [h, w])
+            x1, y1, x2, y2 = d.bbox
+            self._tracks[tid] = {
+                "bbox": d.bbox,
+                "class_name": d.class_name,
+                "score": d.confidence,
+                "last_frame": frame_id,
+            }
+            self._centroid_history[tid].append(((x1 + x2) // 2, (y1 + y2) // 2))
 
-        tracked: list[TrackedObject] = []
-        for t in tracks:
-            tid = int(t.track_id)
-            x1, y1, x2, y2 = map(int, t.tlbr)
-            cx = (x1 + x2) // 2
-            cy = (y1 + y2) // 2
-            self._centroid_history[tid].append((cx, cy))
-
-            # Match back to a detection to get class name
-            matched_class = _match_class(boxes_xyxy, (x1, y1, x2, y2), class_names)
-            if matched_class:
-                self._class_map[tid] = matched_class
-            class_name = self._class_map.get(tid, "unknown")
-
-            tracked.append(TrackedObject(
+            active.append(TrackedObject(
                 track_id=tid,
-                class_name=class_name,
-                bbox=(x1, y1, x2, y2),
-                confidence=float(t.score),
+                class_name=d.class_name,
+                bbox=d.bbox,
+                confidence=d.confidence,
                 frame_id=frame_id,
                 centroid_history=list(self._centroid_history[tid]),
             ))
-        return tracked
+
+        self._evict_stale(frame_id)
+        return active
 
     def get_history(self, track_id: int) -> list[tuple[int, int]]:
         return list(self._centroid_history.get(track_id, []))
 
-
-def _match_class(
-    boxes: np.ndarray,
-    tracked_bbox: tuple[int, int, int, int],
-    class_names: list[str],
-) -> str | None:
-    if len(boxes) == 0:
-        return None
-    tx1, ty1, tx2, ty2 = tracked_bbox
-    ious = _batch_iou(boxes, np.array([[tx1, ty1, tx2, ty2]], dtype=np.float32))
-    best_idx = int(np.argmax(ious))
-    if ious[best_idx] > 0.3:
-        return class_names[best_idx]
-    return None
+    def _evict_stale(self, frame_id: int) -> None:
+        stale = [tid for tid, info in self._tracks.items()
+                 if frame_id - info["last_frame"] > self._track_buffer]
+        for tid in stale:
+            self._tracks.pop(tid, None)
+            self._centroid_history.pop(tid, None)
 
 
-def _batch_iou(boxes: np.ndarray, query: np.ndarray) -> np.ndarray:
-    qx1, qy1, qx2, qy2 = query[0]
-    ix1 = np.maximum(boxes[:, 0], qx1)
-    iy1 = np.maximum(boxes[:, 1], qy1)
-    ix2 = np.minimum(boxes[:, 2], qx2)
-    iy2 = np.minimum(boxes[:, 3], qy2)
-    inter = np.maximum(0, ix2 - ix1) * np.maximum(0, iy2 - iy1)
-    area_boxes = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-    area_query = (qx2 - qx1) * (qy2 - qy1)
-    union = area_boxes + area_query - inter
-    return inter / (union + 1e-6)
+def _iou(box_a: tuple, box_b: tuple) -> float:
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+    if inter == 0:
+        return 0.0
+    area_a = (ax2 - ax1) * (ay2 - ay1)
+    area_b = (bx2 - bx1) * (by2 - by1)
+    return inter / (area_a + area_b - inter + 1e-6)

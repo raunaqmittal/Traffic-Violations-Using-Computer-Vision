@@ -1,0 +1,34 @@
+# Two services sharing the same image and the same artifacts/ + models/ volumes:
+#   - dashboard : Streamlit analytics UI on http://localhost:8501
+#   - pipeline  : processes a video and writes violations into the shared DB
+#
+# Usage:
+#   docker compose build
+#   docker compose up dashboard                 # just the UI
+#   docker compose run --rm pipeline \
+#       python app.py --video data/samples/test_video.mp4   # process a clip
+#
+# The dashboard reads the same artifacts/violations.db the pipeline writes,
+# so violations appear live as the pipeline runs.
+
+services:
+  dashboard:
+    build: .
+    image: traffic-violation-system
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./models:/app/models
+      - ./data:/app/data
+    restart: unless-stopped
+
+  pipeline:
+    image: traffic-violation-system
+    build: .
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./models:/app/models
+      - ./data:/app/data
+    # Default no-op; supply a real command at `docker compose run` time.
+    command: ["python", "app.py", "--video", "data/samples/test_video.mp4"]

@@ -1,10 +1,15 @@
 """
 Triple riding violation detector.
-Rule: count persons whose centroid overlaps a motorcycle bounding box.
-If count >= 3, flag the motorcycle track as a triple-riding violation.
+Rule: count persons whose bounding box sits substantially inside a motorcycle
+bounding box. If count >= 3, flag the motorcycle track as a triple-riding
+violation.
+
+We use *containment* (intersection over the person's own area), NOT IoU.
+Riders are small relative to the whole motorcycle+rider box, so a person fully
+on the bike scores a low IoU (~0.1) yet a high containment (~1.0). IoU would
+miss real triple-riding cases; containment captures them correctly.
 """
 
-import numpy as np
 from datetime import datetime
 from src.models import TrackedObject, ViolationRecord
 from src.violations.classifier import route
@@ -14,7 +19,7 @@ def check(
     tracks: list[TrackedObject],
     frame_id: int,
     camera_id: str = "cam_001",
-    min_overlap_iou: float = 0.20,
+    min_overlap_ratio: float = 0.5,
 ) -> list[ViolationRecord]:
     violations: list[ViolationRecord] = []
 
@@ -22,7 +27,7 @@ def check(
     persons = [t for t in tracks if t.class_name == "person"]
 
     for moto in motorcycles:
-        riders = [p for p in persons if _overlap_iou(moto.bbox, p.bbox) >= min_overlap_iou]
+        riders = [p for p in persons if _containment(moto.bbox, p.bbox) >= min_overlap_ratio]
         if len(riders) >= 3:
             record = ViolationRecord(
                 violation_type="triple_riding",
@@ -37,9 +42,10 @@ def check(
     return violations
 
 
-def _overlap_iou(box_a: tuple, box_b: tuple) -> float:
-    ax1, ay1, ax2, ay2 = box_a
-    bx1, by1, bx2, by2 = box_b
+def _containment(moto_box: tuple, person_box: tuple) -> float:
+    """Fraction of the person box that lies inside the motorcycle box."""
+    ax1, ay1, ax2, ay2 = moto_box
+    bx1, by1, bx2, by2 = person_box
     ix1 = max(ax1, bx1)
     iy1 = max(ay1, by1)
     ix2 = min(ax2, bx2)
@@ -47,6 +53,5 @@ def _overlap_iou(box_a: tuple, box_b: tuple) -> float:
     inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
     if inter == 0:
         return 0.0
-    area_a = (ax2 - ax1) * (ay2 - ay1)
-    area_b = (bx2 - bx1) * (by2 - by1)
-    return inter / (area_a + area_b - inter + 1e-6)
+    person_area = (bx2 - bx1) * (by2 - by1)
+    return inter / (person_area + 1e-6)

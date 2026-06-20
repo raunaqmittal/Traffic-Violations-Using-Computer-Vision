@@ -14,22 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import load_pipeline, load_violations, get_camera_config, load_tracker_config
 from src.preprocessing.frame_processor import process_frame
-from src.detection.vehicle_detector import VehicleDetector
-from src.detection.plate_detector import PlateDetector
-from src.tracking.tracker import Tracker
-from src.ocr.plate_reader import PlateReader
-from src.evidence.generator import EvidenceGenerator
-from src.database.schema import init_db
-from src.database.repository import insert_violation
 from src.models import ViolationRecord
 
-import src.violations.triple_riding as triple_riding
-import src.violations.wrong_side as wrong_side
-import src.violations.stop_line as stop_line_mod
-import src.violations.red_light as red_light_mod
-import src.violations.parking as parking_mod
-from src.violations.helmet import HelmetChecker
-from src.violations.seatbelt import SeatbeltChecker
+# Heavy ML imports (ultralytics / paddleocr / torch) are done lazily inside run()
+# so that `--dry-run` works on machines without the full inference stack installed.
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -62,6 +50,22 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
     db_cfg = pipeline_cfg["database"]
 
     if not dry_run:
+        # Lazy imports — only loaded when actually running detection.
+        from src.detection.vehicle_detector import VehicleDetector
+        from src.detection.plate_detector import PlateDetector
+        from src.tracking.tracker import Tracker
+        from src.ocr.plate_reader import PlateReader
+        from src.evidence.generator import EvidenceGenerator
+        from src.database.schema import init_db
+        from src.database.repository import insert_violation
+        import src.violations.triple_riding as triple_riding
+        import src.violations.wrong_side as wrong_side
+        import src.violations.stop_line as stop_line_mod
+        import src.violations.red_light as red_light_mod
+        import src.violations.parking as parking_mod
+        from src.violations.helmet import HelmetChecker
+        from src.violations.seatbelt import SeatbeltChecker
+
         detector = VehicleDetector(
             inf_cfg["vehicle_detector"] if "vehicle_detector" in inf_cfg
             else pipeline_cfg["models"]["vehicle_detector"],
@@ -84,6 +88,7 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
             conf_threshold=inf_cfg["helmet_conf"],
             device=inf_cfg["device"],
             head_roi_fraction=violation_cfg["helmet"]["head_roi_fraction"],
+            flag_invalid_helmet=violation_cfg["helmet"].get("flag_invalid_helmet", False),
         )
         seatbelt_checker = SeatbeltChecker(
             model_path=pipeline_cfg["models"].get("seatbelt_classifier"),
@@ -105,7 +110,7 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
     allowed_dir = camera_cfg.get("allowed_direction_deg", 90)
     dir_tol = camera_cfg.get("direction_tolerance_deg", 30)
 
-    park_cfg = violation_cfg.get("parking", {})
+    park_cfg = violation_cfg.get("illegal_parking", {})
     ws_cfg = violation_cfg.get("wrong_side", {})
     sl_cfg = violation_cfg.get("stop_line", {})
     rl_cfg = violation_cfg.get("red_light", {})
@@ -157,7 +162,7 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
 
         all_violations += triple_riding.check(
             tracks, frame_idx, camera_id,
-            min_overlap_iou=tr_cfg.get("min_person_overlap_iou", 0.20),
+            min_overlap_ratio=tr_cfg.get("min_person_overlap_ratio", 0.5),
         )
         all_violations += wrong_side.check(
             tracks, frame_idx,

@@ -1,0 +1,15 @@
+# Keep the build context (and image) small.
+.git
+__pycache__/
+*.pyc
+venv/
+.venv/
+artifacts/
+data/
+models/weights/*.pt
+models/**/*.pth
+notebooks/
+docs/
+*.md
+.pytest_cache/
+*.db

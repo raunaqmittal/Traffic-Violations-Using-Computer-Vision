@@ -1,68 +1,54 @@
 """
-Download required pretrained model weights.
-Run this once after setting up the environment.
+Download the pretrained vehicle/person detector (COCO YOLO).
 
-Downloads:
-  - YOLOv8m (vehicle detection) — pretrained COCO weights
-  - YOLOv8n for helmet (placeholder — replace with fine-tuned weights)
-  - Indian plate detection model (placeholder — replace with fine-tuned weights)
+This is the ONLY model that auto-downloads — it already detects
+car, truck, bus, motorcycle and person, which is everything the
+vehicle stage and the triple-riding/helmet association logic need.
 
-Note: Helmet and plate models require domain-specific fine-tuning.
-      Replace the placeholder URLs with your trained model URLs or paths.
+The helmet and plate detectors are trained separately on Colab
+(see notebooks/01_train_models_colab.ipynb) and dropped into
+models/weights/ manually as helmet_yolov8.pt and plate_yolov8.pt.
+
+Usage:
+  python scripts/download_models.py            # default: yolov8m
+  python scripts/download_models.py --model yolo11s   # lighter, great for GTX 1650
 """
 
-import sys
-import urllib.request
+import argparse
+import shutil
 from pathlib import Path
 
-
-MODELS_DIR = Path(__file__).parent.parent / "models" / "weights"
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models" / "weights"
 
 
-DOWNLOADS = [
-    {
-        "name": "YOLOv8m (vehicle detection)",
-        "filename": "yolov8m.pt",
-        "source": "ultralytics",     # downloaded via ultralytics auto-download
-    },
-    {
-        "name": "YOLOv8n (helmet classifier placeholder)",
-        "filename": "helmet_yolov8.pt",
-        "source": "ultralytics",
-        "note": "Replace with your fine-tuned helmet model weights.",
-    },
-]
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--model",
+        default="yolov8m",
+        help="ultralytics model name (e.g. yolov8m, yolov8s, yolo11s)",
+    )
+    args = ap.parse_args()
 
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    name = args.model if args.model.endswith(".pt") else f"{args.model}.pt"
+    target = MODELS_DIR / name
 
-def download_via_ultralytics(filename: str):
-    from ultralytics import YOLO
-    target = MODELS_DIR / filename
     if target.exists():
-        print(f"  Already exists: {target}")
+        print(f"Already present: {target}")
         return
-    # Ultralytics auto-downloads to its cache; copy to our weights dir
-    model = YOLO(filename.replace("_yolov8.pt", "8").replace("yolov8", "yolov8"))
-    import shutil
-    from ultralytics.utils import WEIGHTS_DIR
-    cached = WEIGHTS_DIR / filename
-    if cached.exists():
-        shutil.copy(cached, target)
-        print(f"  Saved to: {target}")
 
+    from ultralytics import YOLO
 
-def main():
-    print("Downloading model weights...\n")
-    for entry in DOWNLOADS:
-        print(f"[{entry['name']}]")
-        if entry.get("note"):
-            print(f"  NOTE: {entry['note']}")
-        if entry["source"] == "ultralytics":
-            download_via_ultralytics(entry["filename"])
-        print()
-
-    print("Done. Update configs/pipeline.yaml model paths if needed.")
-    print("For fine-tuned weights (helmet, plate), place .pt files in models/weights/ manually.")
+    # Instantiating triggers Ultralytics' auto-download; .ckpt_path is the cached file.
+    print(f"Downloading {name} via Ultralytics ...")
+    model = YOLO(name)
+    src = Path(getattr(model, "ckpt_path", "") or name)
+    if src.exists() and src.resolve() != target.resolve():
+        shutil.copy(src, target)
+    print(f"Saved vehicle detector -> {target}")
+    print("Reminder: place helmet_yolov8.pt and plate_yolov8.pt in models/weights/ "
+          "after training on Colab (notebooks/01_train_models_colab.ipynb).")
 
 
 if __name__ == "__main__":

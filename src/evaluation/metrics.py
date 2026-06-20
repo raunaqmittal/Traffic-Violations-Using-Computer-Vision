@@ -52,6 +52,10 @@ def average_precision(
 ) -> float:
     if not gt_boxes:
         return 0.0
+    if not pred_boxes:
+        # No detections -> zero recall -> AP is 0 (guard against the
+        # interpolation endpoints producing a phantom 0.5 area).
+        return 0.0
 
     sorted_indices = np.argsort(pred_scores)[::-1]
     pred_boxes = [pred_boxes[i] for i in sorted_indices]
@@ -85,7 +89,9 @@ def average_precision(
     precision = np.concatenate([[1], precision, [0]])
     for k in range(len(precision) - 2, -1, -1):
         precision[k] = max(precision[k], precision[k + 1])
-    return float(np.trapz(precision, recall))
+    # np.trapz was removed in NumPy 2.0; np.trapezoid replaces it.
+    trapezoid = getattr(np, "trapezoid", None) or np.trapz
+    return float(trapezoid(precision, recall))
 
 
 class FPSTimer:

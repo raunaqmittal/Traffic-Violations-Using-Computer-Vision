@@ -61,6 +61,11 @@ artifacts/*.log
 artifacts/*.csv
 artifacts/export.csv
 
+# SQLite runtime sidecar files
+*.db-journal
+*.db-wal
+*.db-shm
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Jupyter Notebooks — output cells & checkpoints
 # ──────────────────────────────────────────────────────────────────────────────

@@ -7,13 +7,13 @@ input:
   resize_width: 1280                       # resize frames before inference (0 = no resize)
 
 models:
-  vehicle_detector: "models/weights/yolov8m.pt"
+  vehicle_detector: "models/weights/yolo11s.pt"
   plate_detector: "models/weights/plate_yolov8.pt"
   helmet_classifier: "models/weights/helmet_yolov8.pt"
   seatbelt_classifier: "models/seatbelt_classifier/seatbelt_cnn.pth"
 
 inference:
-  device: "cpu"                   # "cpu" or "cuda" or "cuda:0"
+  device: "cuda"                  # "cpu" or "cuda" or "cuda:0"
   vehicle_conf: 0.45              # minimum detection confidence for vehicles/persons
   plate_conf: 0.50                # minimum confidence for plate localization
   helmet_conf: 0.55               # minimum confidence for helmet classifier

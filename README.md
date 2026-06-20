@@ -14,11 +14,27 @@ Automated photo/video identification and classification of traffic violations us
 | Red-light violation | Signal ROI + vehicle position |
 | Illegal parking | No-parking polygon + dwell timer |
 
+## Models
+
+Three detectors; only **two need training** (the vehicle/person detector is pretrained COCO YOLO):
+
+| Model | File | How to get it |
+|-------|------|---------------|
+| Vehicle + person + road users | `models/weights/yolov8m.pt` | `python scripts/download_models.py` (auto) |
+| Helmet / no-helmet | `models/weights/helmet_yolov8.pt` | Train on Colab → [docs/COLAB_GUIDE.md](docs/COLAB_GUIDE.md) |
+| License plate | `models/weights/plate_yolov8.pt` | Train on Colab → [docs/COLAB_GUIDE.md](docs/COLAB_GUIDE.md) |
+
+Download the training datasets locally with `python scripts/download_datasets.py --all`
+(needs a free Roboflow or Kaggle key), or let the Colab notebook pull them.
+
 ## Setup
 
+> **Use Python 3.11.** `paddlepaddle`/`paddleocr` and `torch` do not publish wheels
+> for Python 3.13, so a bare 3.13 install fails. The Docker image pins 3.11 for you.
+
 ```bash
-# 1. Create virtual environment
-python -m venv venv
+# 1. Create virtual environment (Python 3.11)
+py -3.11 -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Linux/macOS
 
@@ -62,6 +78,26 @@ python app.py --video data/samples/test_video.mp4 --dry-run
 python app.py --dashboard
 # Opens Streamlit dashboard at http://localhost:8501
 ```
+
+## Deployment (Docker)
+
+Reproducible, runs anywhere — no local Python/CUDA setup needed. Requires Docker Desktop.
+
+```bash
+# Build the image (pins Python 3.11 + all deps)
+docker compose build
+
+# Launch the analytics dashboard  ->  http://localhost:8501
+docker compose up dashboard
+
+# Process a video into the shared database (dashboard updates live)
+docker compose run --rm pipeline python app.py --video data/samples/test_video.mp4
+```
+
+The `artifacts/`, `models/`, and `data/` folders are mounted as volumes, so trained
+weights, the violations database, and evidence images persist across runs and are
+shared between the pipeline and dashboard containers. For GPU inference, see the
+note at the top of the [Dockerfile](Dockerfile).
 
 ## Running Tests
 
