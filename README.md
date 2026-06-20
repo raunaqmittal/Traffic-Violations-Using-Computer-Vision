@@ -20,7 +20,7 @@ Three detectors; only **two need training** (the vehicle/person detector is pret
 
 | Model | File | How to get it |
 |-------|------|---------------|
-| Vehicle + person + road users | `models/weights/yolov8m.pt` | `python scripts/download_models.py` (auto) |
+| Vehicle + person + road users | `models/weights/yolo11s.pt` | `python scripts/download_models.py` (auto) |
 | Helmet / no-helmet | `models/weights/helmet_yolov8.pt` | Train on Colab → [docs/COLAB_GUIDE.md](docs/COLAB_GUIDE.md) |
 | License plate | `models/weights/plate_yolov8.pt` | Train on Colab → [docs/COLAB_GUIDE.md](docs/COLAB_GUIDE.md) |
 

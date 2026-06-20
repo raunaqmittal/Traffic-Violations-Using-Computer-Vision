@@ -7,15 +7,14 @@ Organized by priority — collect in this order.
 
 ## PRIORITY 1 — Model Weights (Pipeline Won't Start Without These)
 
-### 1.1 YOLOv8m — Vehicle Detection (Auto-downloaded)
+### 1.1 YOLO11s — Vehicle Detection (Auto-downloaded)
 - **What**: Pretrained COCO weights. Detects car, truck, bus, motorcycle, person.
 - **How to get**: Runs automatically on first use via Ultralytics.
   ```bash
   python scripts/download_models.py
   ```
-  OR just run the pipeline — it auto-downloads `yolov8m.pt` to its cache.
-- **File to place**: `models/weights/yolov8m.pt`
-- **Size**: ~50 MB
+- **File to place**: `models/weights/yolo11s.pt`
+- **Size**: ~18 MB
 - **Cost**: Free
 - **Status**: ✅ Auto-downloaded
 
@@ -151,9 +150,9 @@ Organized by priority — collect in this order.
 
 | Component | Technology | Cost |
 |-----------|-----------|------|
-| Vehicle detection | YOLOv8 pretrained | Free |
-| OCR | PaddleOCR (runs locally) | Free |
-| Tracking | ByteTrack (built-in) | Free |
+| Vehicle detection | YOLO11s pretrained (COCO) | Free |
+| OCR | EasyOCR (runs locally via torch) | Free |
+| Tracking | Self-contained IoU tracker (`src/tracking/tracker.py`) | Free |
 | Database | SQLite (local file) | Free |
 | Dashboard | Streamlit (local) | Free |
 | Seatbelt model | Trained locally in notebook | Free |
@@ -171,11 +170,11 @@ No OpenAI, no Google Vision API, no AWS, no Azure — everything runs on your ma
 | `plate_yolov8.pt` | **Trained on Colab T4** | P1 | ✅ Done |
 | EasyOCR (replaces PaddleOCR) | pip install easyocr | P1 | ✅ Done |
 | Docker setup | Dockerfile + docker-compose.yml | P1 | ✅ Done |
-| Test video (`.mp4`) | YouTube / your camera | P2 | ❌ Still needed |
+| Test video (`.mp4`) | `data/samples/indian_traffic_test_video.mp4` | P2 | ✅ Done |
+| Camera zone config | `configs/cameras.yaml` (set via `draw_zones.py`) | P2 | ✅ Done |
 | Seatbelt crop images | Manual collection (~300) | P2 | ❌ Optional |
-| Plate model mAP metrics | Capture from Colab training run | P2 | ❌ Still needed |
+| Plate model mAP metrics | Capture from Colab training run | P2 | ❌ Still needed for report |
 | Evaluation labels (100–200 frames) | Label Studio / CVAT | P2 | ❌ For report |
-| Camera zone config | `scripts/draw_zones.py` on real footage | P2 | ❌ Still needed |
 | Indian road dataset (IDD) | idd.insaan.iiit.ac.in | P3 optional | ⚠️ Only if accuracy is poor |
 | Roboflow account | roboflow.com | P3 | ✅ Used for training |
 | Kaggle account | kaggle.com | P3 | ✅ Used for training |
