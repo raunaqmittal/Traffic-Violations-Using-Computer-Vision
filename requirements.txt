@@ -11,10 +11,6 @@ torch>=2.2.0
 torchvision>=0.17.0
 Pillow>=10.0.0
 tqdm>=4.66.0
-lapx>=0.5.5
 matplotlib>=3.8.0
 seaborn>=0.13.0
 reportlab>=4.2.0
-# Dataset acquisition (training only — not needed at inference)
-roboflow>=1.1.0
-kaggle>=1.6.0
