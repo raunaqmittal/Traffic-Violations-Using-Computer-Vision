@@ -99,6 +99,17 @@ weights, the violations database, and evidence images persist across runs and ar
 shared between the pipeline and dashboard containers. For GPU inference, see the
 note at the top of the [Dockerfile](Dockerfile).
 
+## Cloud Demo & Submission
+
+A fully interactive, CPU-friendly Streamlit web app is included for easy deployment to cloud platforms like Hugging Face Spaces or Streamlit Cloud. 
+
+```bash
+# Run the cloud demo locally
+streamlit run streamlit_app.py
+```
+
+For detailed instructions on deploying to the cloud and submitting the project to HackerEarth, please see **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
 ## Running Tests
 
 ```bash
@@ -113,10 +124,10 @@ traffic_violation_system/
 ├── configs/           # All tunable parameters (YAML — no hardcoded values)
 ├── src/
 │   ├── preprocessing/ # CLAHE, blur detection, rain filter
-│   ├── detection/     # YOLOv8 vehicle + plate detectors
-│   ├── tracking/      # ByteTrack wrapper with centroid history
+│   ├── detection/     # YOLO11 vehicle + YOLOv8 plate/helmet detectors
+│   ├── tracking/      # Self-contained IoU tracker + memory caching
 │   ├── violations/    # One file per violation type + classifier.py
-│   ├── ocr/           # PaddleOCR plate reader
+│   ├── ocr/           # EasyOCR plate reader
 │   ├── evidence/      # Annotated image + JSON saver
 │   ├── database/      # SQLite schema + repository
 │   ├── analytics/     # Aggregation queries for dashboard

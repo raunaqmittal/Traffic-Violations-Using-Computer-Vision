@@ -26,6 +26,7 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 | OCR | EasyOCR (GPU via torch) ✅ |
 | Seatbelt CNN | Not trained → correctly returns `indeterminate` |
 | Docker | `Dockerfile` + `docker-compose.yml` present — CPU image, GPU note inside |
+| Cloud Demo | `streamlit_app.py` — CPU-friendly interactive UI for Hugging Face / Streamlit Cloud |
 | Tests | 36/36 passing (`pytest tests/ -q`) |
 | Git | `main` branch on `github.com/raunaqmittal/Traffic-Violations-Using-Computer-Vision` |
 
@@ -99,7 +100,10 @@ Streamlit Dashboard  (KPIs, charts, searchable table, image viewer, CSV export)
 traffic project/                              ← repo root
 │
 ├── app.py                                    ← CLI: --video, --camera, --dry-run, --show, --dashboard
-├── requirements.txt                          ← easyocr (NOT paddle); torch installed separately
+├── streamlit_app.py                          ← Cloud-friendly interactive image demo (HF Spaces / Streamlit Cloud)
+├── requirements.txt                          ← Runtime deps only (easyocr, torch, streamlit, etc.)
+├── requirements-train.txt                    ← Training deps (roboflow, kaggle)
+├── packages.txt                              ← apt deps (libgl1, ffmpeg) for cloud deployment
 ├── README.md
 ├── .gitignore                                ← comprehensive: .pt/.pth/.mp4/DB/venv/cache
 ├── Dockerfile                                ← python:3.11-slim CPU image; GPU note inside
@@ -161,7 +165,7 @@ traffic project/                              ← repo root
 │
 ├── data/
 │   ├── raw/                           ← gitignored
-│   ├── samples/                       ← test clips (*.mp4 gitignored)
+│   ├── samples/                       ← test clips (*.mp4 gitignored) + bus.jpg (for demo)
 │   └── seatbelt_crops/
 │       ├── seatbelt/
 │       └── no_seatbelt/
@@ -180,6 +184,7 @@ traffic project/                              ← repo root
 └── docs/
     ├── Traffic_Violation_Final_Implementation_Plan.md  ← PRIMARY source of truth
     ├── COLAB_GUIDE.md                                  ← Colab training workflow
+    ├── DEPLOYMENT.md                                   ← Cloud deploy steps (HF Spaces) + HackerEarth guide
     ├── resources.md                                    ← datasets, models, tools checklist
     └── context.md                                      ← this file
 ```
