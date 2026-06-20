@@ -15,11 +15,11 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 
 ## Current Status (2026-06-21)
 
-**Working end-to-end on GPU.** Full pipeline verified on a real traffic video on GTX 1650. Violations firing: `illegal_parking` and `stop_line` confirmed. Pipeline is now optimized with `TrackMemory` for heavy ML caching. 36/36 unit tests pass.
+**Working end-to-end on GPU.** Full pipeline verified on a real traffic video on RTX 3050 Ti (Lenovo Legion Slim 7i, i7 12th Gen, 16GB DDR5). Violations firing: `illegal_parking` and `stop_line` confirmed. Pipeline is now optimized with `TrackMemory` for heavy ML caching. 36/36 unit tests pass.
 
 | Component | State |
 |-----------|-------|
-| Environment | Python **3.11.9** venv at `venv/`. System Python is 3.13 — **do NOT use it** (torch/paddle have no 3.13 wheels). torch 2.5.1+cu121, CUDA working on GTX 1650. |
+| Environment | Python **3.11.9** venv at `venv/`. System Python is 3.13 — **do NOT use it** (torch/paddle have no 3.13 wheels). torch 2.5.1+cu121, CUDA working on RTX 3050 Ti. |
 | Vehicle/person model | `models/weights/yolo11s.pt` — COCO pretrained ✅ |
 | Helmet model | `models/weights/helmet_yolov8.pt` — **TRAINED on Colab T4** ✅ |
 | Plate model | `models/weights/plate_yolov8.pt` — **TRAINED on Colab T4** ✅ |
@@ -217,7 +217,7 @@ class ViolationRecord:
 | File | Critical key | Value |
 |------|-------------|-------|
 | `pipeline.yaml` | `models.vehicle_detector` | `models/weights/yolo11s.pt` (YOLO11, not v8) |
-| `pipeline.yaml` | `inference.device` | `cuda` (GTX 1650 confirmed working) |
+| `pipeline.yaml` | `inference.device` | `cuda` (RTX 3050 Ti confirmed working) |
 | `violations.yaml` | parking section key | `illegal_parking` (NOT `parking`) |
 | `violations.yaml` | triple riding key | `min_person_overlap_ratio` (NOT `min_person_overlap_iou`) |
 | `violations.yaml` | `helmet.flag_invalid_helmet` | `false` by default; set `true` to also flag improperly-worn helmets |
