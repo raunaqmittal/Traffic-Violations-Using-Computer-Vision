@@ -15,7 +15,7 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 
 ## Current Status (2026-06-21)
 
-**Working end-to-end on GPU.** Full pipeline verified on a real traffic video on GTX 1650. Violations firing: `illegal_parking` and `stop_line` confirmed. 23/23 unit tests pass.
+**Working end-to-end on GPU.** Full pipeline verified on a real traffic video on GTX 1650. Violations firing: `illegal_parking` and `stop_line` confirmed. Pipeline is now optimized with `TrackMemory` for heavy ML caching. 36/36 unit tests pass.
 
 | Component | State |
 |-----------|-------|
@@ -26,7 +26,7 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 | OCR | EasyOCR (GPU via torch) ✅ |
 | Seatbelt CNN | Not trained → correctly returns `indeterminate` |
 | Docker | `Dockerfile` + `docker-compose.yml` present — CPU image, GPU note inside |
-| Tests | 23/23 passing (`pytest tests/ -q`) |
+| Tests | 36/36 passing (`pytest tests/ -q`) |
 | Git | `main` branch on `github.com/raunaqmittal/Traffic-Violations-Using-Computer-Vision` |
 
 **Helmet model metrics (best.pt — epoch 54):**
@@ -68,9 +68,11 @@ Vehicle & Road User Detection  (YOLO11s, COCO — car, truck, bus, motorcycle, p
       ↓
 IoU Tracker  (self-contained greedy IoU — stable IDs + 60-frame centroid history)
       ↓
+TrackMemory Manager (caches ML inferences per track ID, rechecks on schedule or low confidence)
+      ↓
 Violation Detection Engine
-  ├── Helmet         → full-frame helmet YOLO + associate no-helmet heads to motorcycles
-  ├── Seatbelt       → Binary CNN (indeterminate fallback)
+  ├── Helmet         → full-frame helmet YOLO (cached per bike) + associate no-helmet heads
+  ├── Seatbelt       → Binary CNN (cached per car, indeterminate fallback)
   ├── Triple Riding  → person-containment rule (intersection / person-area)
   ├── Wrong-side     → direction vector rule on centroid history
   ├── Stop-line      → virtual line + signal state (HSV)
@@ -80,7 +82,7 @@ Violation Detection Engine
 Violation Classifier & Confidence Scorer
   (≥ threshold → auto_flagged | below → review | unusable → indeterminate)
       ↓
-License Plate Detection (YOLO fine-tuned, class License_Plate) + EasyOCR
+License Plate Detection + EasyOCR (triggered only on violation, result cached per vehicle)
       ↓
 Evidence Generator  (annotated JPEG + JSON sidecar per violation)
       ↓
@@ -118,7 +120,8 @@ traffic project/                              ← repo root
 │   │   ├── vehicle_detector.py              ← VehicleDetector (YOLO11 wrapper, class whitelist)
 │   │   └── plate_detector.py               ← PlateDetector + crop-coord translation
 │   ├── tracking/
-│   │   └── tracker.py                      ← Tracker (self-contained IoU — NOT ByteTrack/BYTETracker)
+│   │   ├── tracker.py                      ← Tracker (self-contained IoU — NOT ByteTrack/BYTETracker)
+│   │   └── track_memory.py                 ← TrackMemory (caches expensive ML results per track ID)
 │   ├── violations/
 │   │   ├── classifier.py                   ← route(record) → sets status from per-violation threshold
 │   │   ├── signal_utils.py                 ← detect_signal_state() → "red"|"green"|"unknown"
@@ -233,6 +236,8 @@ class ViolationRecord:
 | `plate_reader.py` used PaddleOCR | PaddlePaddle 3.x oneDNN runtime bug on Windows; swapped to EasyOCR |
 | `video_pipeline.py` eager ML imports | Made lazy (inside `if not dry_run:`) so `--dry-run` works without torch/easyocr |
 | violations.yaml config | `parking` key → `illegal_parking`; `min_person_overlap_iou` → `min_person_overlap_ratio` |
+| Expensive ML ran every frame | Implemented `TrackMemory` for helmet/seatbelt/plate caching, synced to tracker |
+| DB flooded with `indeterminate` | `TrackMemory` ensures seatbelt `indeterminate` is emitted only once per car |
 
 ---
 
@@ -333,9 +338,10 @@ See `docs/COLAB_GUIDE.md` for step-by-step.
 | Preprocessing | OpenCV (CLAHE, Laplacian, median blur) |
 | Database | SQLite via SQLAlchemy |
 | Dashboard | Streamlit |
+| Optimization | `TrackMemory` — per-track result caching with occlusion recheck logic |
 | Deployment | Docker + docker-compose |
 | Evaluation | scikit-learn + custom mAP (np.trapezoid) |
-| Tests | pytest (23/23 passing) |
+| Tests | pytest (36/36 passing) |
 
 ---
 

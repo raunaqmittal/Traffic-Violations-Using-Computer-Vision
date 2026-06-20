@@ -12,6 +12,8 @@ violations:
     head_roi_fraction: 0.35
     # Treat an improperly-worn ("invalid") helmet as a violation too.
     flag_invalid_helmet: false
+    # Frames between re-checks on the same motorcycle track (at target_fps=10, 30 = 3 sec).
+    refresh_interval: 30
 
   seatbelt:
     enabled: true
@@ -22,6 +24,8 @@ violations:
     # Minimum crop size in pixels; crops smaller than this are marked "indeterminate"
     min_crop_width: 60
     min_crop_height: 40
+    # Frames between re-checks on the same car track (at target_fps=10, 60 = 6 sec).
+    refresh_interval: 60
 
   triple_riding:
     enabled: true

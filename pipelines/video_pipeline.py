@@ -1,7 +1,12 @@
 """
 Main video processing pipeline.
 Wires all modules together in order:
-  Frame → Preprocess → Detect → Track → Violations → ANPR → Evidence → DB
+  Frame → Preprocess → Detect → Track → TrackMemory → Violations → ANPR → Evidence → DB
+
+Optimizations (via TrackMemory):
+  - Helmet YOLO only runs when at least one motorcycle track needs a (re-)check.
+  - Seatbelt CNN only runs when a car track needs a check (indeterminate emitted once, not per frame).
+  - Plate detection + OCR only runs on violation frames, and results are cached per track.
 """
 
 import cv2
@@ -16,8 +21,8 @@ from src.config import load_pipeline, load_violations, get_camera_config, load_t
 from src.preprocessing.frame_processor import process_frame
 from src.models import ViolationRecord
 
-# Heavy ML imports (ultralytics / paddleocr / torch) are done lazily inside run()
-# so that `--dry-run` works on machines without the full inference stack installed.
+# Heavy ML imports are done lazily inside run() so that --dry-run works
+# on machines without the full inference stack.
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -33,7 +38,6 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
         log.error("Camera '%s' not found in cameras.yaml", camera_id)
         return
 
-    # Parse source (webcam index or string)
     src = int(source) if source.isdigit() else source
     cap = cv2.VideoCapture(src)
     if not cap.isOpened():
@@ -50,10 +54,10 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
     db_cfg = pipeline_cfg["database"]
 
     if not dry_run:
-        # Lazy imports — only loaded when actually running detection.
         from src.detection.vehicle_detector import VehicleDetector
         from src.detection.plate_detector import PlateDetector
         from src.tracking.tracker import Tracker
+        from src.tracking.track_memory import TrackMemory
         from src.ocr.plate_reader import PlateReader
         from src.evidence.generator import EvidenceGenerator
         from src.database.schema import init_db
@@ -82,6 +86,10 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
             track_thresh=tracker_cfg.get("track_thresh", 0.50),
             track_buffer=tracker_cfg.get("track_buffer", 30),
             match_thresh=tracker_cfg.get("match_thresh", 0.80),
+        )
+        memory = TrackMemory(
+            helmet_refresh_interval=violation_cfg.get("helmet", {}).get("refresh_interval", 30),
+            seatbelt_refresh_interval=violation_cfg.get("seatbelt", {}).get("refresh_interval", 60),
         )
         helmet_checker = HelmetChecker(
             pipeline_cfg["models"]["helmet_classifier"],
@@ -157,6 +165,14 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
         # Tracking
         tracks = tracker.update(detections, processed_frame, frame_idx)
 
+        # Sync track memory — evict entries for tracks the tracker has dropped.
+        active_ids = {t.track_id for t in tracks}
+        memory.evict_stale(active_ids)
+
+        # Ensure every active track has a memory entry.
+        for t in tracks:
+            memory.get_or_create(t.track_id, t.class_name)
+
         # Violations
         all_violations: list[ViolationRecord] = []
 
@@ -196,8 +212,14 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
             stationary_pixel_threshold=park_cfg.get("stationary_pixel_threshold", 15),
             camera_id=camera_id,
         )
-        all_violations += helmet_checker.check(tracks, processed_frame, frame_idx, camera_id)
-        all_violations += seatbelt_checker.check(tracks, processed_frame, frame_idx, camera_id)
+
+        # ML-based violations use track memory to skip redundant inference.
+        all_violations += helmet_checker.check(
+            tracks, processed_frame, frame_idx, camera_id, track_memory=memory,
+        )
+        all_violations += seatbelt_checker.check(
+            tracks, processed_frame, frame_idx, camera_id, track_memory=memory,
+        )
 
         # ANPR + evidence for confirmed/review violations
         for v in all_violations:
@@ -207,18 +229,25 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
 
             v.is_blurry = quality.is_blurry
 
-            # Run plate detection on the vehicle crop
-            plate_dets = plate_detector.detect_in_vehicle_crop(processed_frame, v.bbox, frame_idx)
-            if plate_dets:
-                best_plate = plate_dets[0]
-                px1, py1, px2, py2 = best_plate.bbox
-                plate_crop = processed_frame[py1:py2, px1:px2]
-                plate_result = plate_reader.read(plate_crop)
-                if plate_result:
-                    v.plate_number = plate_result.text
-                    v.plate_confidence = plate_result.confidence
+            # Plate caching: reuse OCR result if we already read this vehicle's plate.
+            mem_state = memory.get(v.vehicle_id)
+            if mem_state and mem_state.plate_number is not None:
+                v.plate_number = mem_state.plate_number
+                v.plate_confidence = mem_state.plate_confidence
+            else:
+                plate_dets = plate_detector.detect_in_vehicle_crop(processed_frame, v.bbox, frame_idx)
+                if plate_dets:
+                    best_plate = plate_dets[0]
+                    px1, py1, px2, py2 = best_plate.bbox
+                    plate_crop = processed_frame[py1:py2, px1:px2]
+                    plate_result = plate_reader.read(plate_crop)
+                    if plate_result:
+                        v.plate_number = plate_result.text
+                        v.plate_confidence = plate_result.confidence
+                        if mem_state:
+                            mem_state.plate_number = plate_result.text
+                            mem_state.plate_confidence = plate_result.confidence
 
-            # Evidence: annotated image + JSON
             v = evidence_gen.save(processed_frame, v)
             insert_violation(v, engine)
 
