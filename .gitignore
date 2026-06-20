@@ -26,9 +26,7 @@ ENV/
 # GitHub has a 100 MB file size limit and 2 GB repo limit.
 # Use Git LFS or download scripts instead.
 # ──────────────────────────────────────────────────────────────────────────────
-models/weights/
-models/seatbelt_classifier/
-*.pt
+
 *.pth
 *.onnx
 *.engine
