@@ -2,18 +2,24 @@
 Interactive demo for the Traffic Violation Detection System.
 
 This is the public, CPU-friendly demo entry point (deploy target for
-Streamlit Community Cloud / Hugging Face Spaces). Upload a traffic image and the
-app runs the real detectors + violation logic and returns annotated evidence.
+Streamlit Community Cloud / Hugging Face Spaces). Upload a traffic image or
+short video clip and the app runs the real detectors + violation logic and
+returns annotated evidence.
 
-It reuses the exact production modules in src/ (VehicleDetector, HelmetChecker,
-triple_riding, PlateDetector, PlateReader) so the demo behaviour matches the
-full pipeline — it just runs per-image instead of per-video-frame.
+Visual violations detected (no camera calibration needed):
+  - Helmet non-compliance (rider_no_helmet YOLO)
+  - Triple riding (person-containment rule on motorcycle bbox)
+  - License plate reading (YOLO + EasyOCR)
+
+Geometry-based violations (stop-line, wrong-side, parking, red-light) require
+per-camera calibration and run only in the full video pipeline (app.py --video).
 
 Run locally:   streamlit run streamlit_app.py
 Deploy:        see docs/DEPLOYMENT.md
 """
 
 import sys
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -35,6 +41,11 @@ _VIOLATION_COLORS = {
     "helmet": (0, 0, 255),
     "triple_riding": (0, 165, 255),
 }
+
+# Maximum frames to sample from a video upload (keeps it fast on CPU cloud)
+MAX_VIDEO_FRAMES = 30
+# Process every Nth frame from the video
+FRAME_SAMPLE_INTERVAL = 10
 
 st.set_page_config(page_title="Traffic Violation Detection", page_icon="🚦", layout="wide")
 
@@ -70,8 +81,8 @@ def load_models(device: str):
 
 
 def _tracks_from_detections(dets: list[Detection]) -> list[TrackedObject]:
-    """Single-image 'tracks': one track per detection (no temporal tracking needed
-    for helmet / triple-riding, which are per-frame rules)."""
+    """Single-frame 'tracks': one track per detection (no temporal tracking
+    needed for helmet / triple-riding which are per-frame rules)."""
     tracks = []
     for i, d in enumerate(dets):
         x1, y1, x2, y2 = d.bbox
@@ -85,7 +96,7 @@ def _tracks_from_detections(dets: list[Detection]) -> list[TrackedObject]:
 
 def _annotate(frame, dets, violations, plates):
     img = frame.copy()
-    # Vehicles / persons — light boxes.
+    # Vehicles / persons — light green boxes.
     for d in dets:
         x1, y1, x2, y2 = d.bbox
         cv2.rectangle(img, (x1, y1), (x2, y2), (0, 200, 0), 1)
@@ -107,17 +118,17 @@ def _annotate(frame, dets, violations, plates):
     return img
 
 
-def run_detection(frame, models):
+def run_detection(frame: np.ndarray, models, frame_id: int = 0):
     vehicle, plate, helmet, reader = models
-    dets = vehicle.detect(frame, frame_id=0)
+    dets = vehicle.detect(frame, frame_id=frame_id)
     tracks = _tracks_from_detections(dets)
 
     violations = []
-    violations += triple_riding.check(tracks, frame_id=0)
-    violations += helmet.check(tracks, frame, frame_id=0)
+    violations += triple_riding.check(tracks, frame_id=frame_id)
+    violations += helmet.check(tracks, frame, frame_id=frame_id)
 
     plates = []
-    for p in plate.detect(frame, frame_id=0):
+    for p in plate.detect(frame, frame_id=frame_id):
         x1, y1, x2, y2 = p.bbox
         crop = frame[y1:y2, x1:x2]
         result = reader.read(crop)
@@ -126,10 +137,115 @@ def run_detection(frame, models):
     return dets, violations, plates
 
 
+def _show_results(dets, violations, plates, col):
+    col.metric("Road users detected", len(dets))
+    col.metric("Violations flagged", len(violations))
+    if violations:
+        col.dataframe(
+            [{"type": v.violation_type, "confidence": round(v.confidence, 2), "status": v.status}
+             for v in violations],
+            use_container_width=True,
+        )
+    else:
+        col.success("No violations detected.")
+
+    read_plates = [{"plate": t, "confidence": round(c, 2)} for (_b, t, c) in plates if t]
+    if read_plates:
+        col.subheader("Number plates read")
+        col.dataframe(read_plates, use_container_width=True)
+
+
+def process_image(frame: np.ndarray, models):
+    dets, violations, plates = run_detection(frame, models)
+    annotated = _annotate(frame, dets, violations, plates)
+
+    left, right = st.columns(2)
+    left.subheader("Annotated evidence")
+    left.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True)
+    right.subheader("Results")
+    _show_results(dets, violations, plates, right)
+
+
+def process_video(video_path: str, models):
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_fps = cap.get(cv2.CAP_PROP_FPS) or 25
+
+    # Sample frames evenly across the video up to MAX_VIDEO_FRAMES
+    sample_interval = max(FRAME_SAMPLE_INTERVAL, total_frames // MAX_VIDEO_FRAMES)
+
+    st.info(
+        f"Video: {total_frames} frames @ {video_fps:.0f} fps. "
+        f"Sampling every {sample_interval} frames (≤{MAX_VIDEO_FRAMES} frames total)."
+    )
+
+    progress = st.progress(0, text="Analysing video…")
+    frame_idx = 0
+    processed = 0
+    all_violations = []
+    all_plates: dict[str, float] = {}
+    annotated_frames = []
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_idx += 1
+
+        if frame_idx % sample_interval != 0:
+            continue
+
+        dets, violations, plates = run_detection(frame, models, frame_id=frame_idx)
+        all_violations.extend(violations)
+        for (_b, text, conf) in plates:
+            if text and conf > all_plates.get(text, 0):
+                all_plates[text] = conf
+
+        annotated = _annotate(frame, dets, violations, plates)
+        annotated_frames.append(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
+
+        processed += 1
+        progress.progress(min(processed / MAX_VIDEO_FRAMES, 1.0), text=f"Frame {frame_idx}…")
+        if processed >= MAX_VIDEO_FRAMES:
+            break
+
+    cap.release()
+    progress.empty()
+
+    st.success(f"Processed {processed} sampled frames.")
+
+    # Show a carousel of sampled annotated frames
+    st.subheader("Sampled annotated frames")
+    cols = st.columns(min(3, len(annotated_frames)))
+    for i, img in enumerate(annotated_frames):
+        cols[i % 3].image(img, use_container_width=True, caption=f"Sample {i + 1}")
+
+    # Summary
+    st.subheader("Summary across all sampled frames")
+    c1, c2 = st.columns(2)
+    c1.metric("Total violations found", len(all_violations))
+    c2.metric("Unique plates read", len(all_plates))
+
+    if all_violations:
+        st.dataframe(
+            [{"type": v.violation_type, "confidence": round(v.confidence, 2), "status": v.status}
+             for v in all_violations],
+            use_container_width=True,
+        )
+    if all_plates:
+        st.subheader("Plates detected")
+        st.dataframe(
+            [{"plate": k, "confidence": round(v, 2)} for k, v in all_plates.items()],
+            use_container_width=True,
+        )
+
+
 def main():
     st.title("🚦 Automated Traffic Violation Detection")
-    st.caption("Upload a traffic image — the system detects road users, flags violations "
-               "(helmet non-compliance, triple riding), and reads number plates.")
+    st.caption(
+        "Upload a traffic **image or video** — the system detects road users, flags violations "
+        "(helmet non-compliance, triple riding), and reads number plates."
+    )
 
     device = _device()
     st.sidebar.markdown(f"**Compute:** `{device}`")
@@ -137,56 +253,62 @@ def main():
         "**Models**\n- Vehicles/persons: YOLO11s (COCO)\n- Helmet: fine-tuned YOLO\n"
         "- Plate: fine-tuned YOLO + EasyOCR"
     )
+    st.sidebar.markdown(
+        "**Violations detected here**\n"
+        "- 🪖 Helmet non-compliance\n"
+        "- 🏍️ Triple riding\n"
+        "- 🔢 License plate reading\n\n"
+        "_Stop-line, wrong-side, parking and red-light require camera calibration "
+        "and run only in the full local pipeline (`app.py --video`)._"
+    )
 
     sample_dir = ROOT / "samples"
-    sample_files = sorted([p for p in sample_dir.glob("*") if p.suffix.lower() in {".jpg", ".jpeg", ".png"}]) \
+    sample_files = sorted([p for p in sample_dir.glob("*") if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".mp4"}]) \
         if sample_dir.is_dir() else []
 
-    col = st.columns([2, 1])
-    uploaded = col[0].file_uploader("Upload a traffic image", type=["jpg", "jpeg", "png"])
-    chosen_sample = None
-    if sample_files:
-        names = ["—"] + [p.name for p in sample_files]
-        pick = col[1].selectbox("…or try a sample", names)
-        if pick != "—":
-            chosen_sample = sample_dir / pick
+    tab_upload, tab_sample = st.tabs(["📤 Upload", "🖼️ Try a sample"])
 
-    frame = None
-    if uploaded is not None:
-        data = np.frombuffer(uploaded.read(), np.uint8)
-        frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
-    elif chosen_sample is not None:
-        frame = cv2.imread(str(chosen_sample))
-
-    if frame is None:
-        st.info("Upload an image to begin.")
-        return
-
-    models = load_models(device)
-    with st.spinner("Analysing…"):
-        dets, violations, plates = run_detection(frame, models)
-    annotated = _annotate(frame, dets, violations, plates)
-
-    left, right = st.columns(2)
-    left.subheader("Annotated evidence")
-    left.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True)
-
-    right.subheader("Results")
-    right.metric("Road users detected", len(dets))
-    right.metric("Violations flagged", len(violations))
-    if violations:
-        right.dataframe(
-            [{"type": v.violation_type, "confidence": round(v.confidence, 2), "status": v.status}
-             for v in violations],
-            use_container_width=True,
+    # ── Upload tab ──────────────────────────────────────────────────────────
+    with tab_upload:
+        uploaded = st.file_uploader(
+            "Upload a traffic image or video clip",
+            type=["jpg", "jpeg", "png", "mp4", "avi", "mov"],
         )
-    else:
-        right.success("No violations detected in this image.")
+        if uploaded is not None:
+            models = load_models(device)
+            suffix = Path(uploaded.name).suffix.lower()
 
-    read_plates = [{"plate": t, "confidence": round(c, 2)} for (_b, t, c) in plates if t]
-    if read_plates:
-        right.subheader("Number plates")
-        right.dataframe(read_plates, use_container_width=True)
+            if suffix in {".jpg", ".jpeg", ".png"}:
+                data = np.frombuffer(uploaded.read(), np.uint8)
+                frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                with st.spinner("Analysing image…"):
+                    process_image(frame, models)
+
+            elif suffix in {".mp4", ".avi", ".mov"}:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(uploaded.read())
+                    tmp_path = tmp.name
+                with st.spinner("Analysing video…"):
+                    process_video(tmp_path, models)
+
+    # ── Sample tab ──────────────────────────────────────────────────────────
+    with tab_sample:
+        if not sample_files:
+            st.info("No sample files found in the `samples/` folder.")
+        else:
+            names = [p.name for p in sample_files]
+            pick = st.selectbox("Choose a sample", names)
+            chosen = sample_dir / pick
+            if st.button("▶️ Run detection on sample"):
+                models = load_models(device)
+                suffix = chosen.suffix.lower()
+                if suffix in {".jpg", ".jpeg", ".png"}:
+                    frame = cv2.imread(str(chosen))
+                    with st.spinner("Analysing image…"):
+                        process_image(frame, models)
+                elif suffix in {".mp4", ".avi", ".mov"}:
+                    with st.spinner("Analysing video…"):
+                        process_video(str(chosen), models)
 
 
 if __name__ == "__main__":
