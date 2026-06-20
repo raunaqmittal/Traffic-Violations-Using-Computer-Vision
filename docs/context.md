@@ -1,36 +1,43 @@
 # Project Context — Traffic Violation Detection System
 
-> **Purpose of this file**: Paste the contents into any new AI chat session to restore full project context instantly. Kept current as the project evolves.
+> **Purpose**: Paste into any new AI chat to restore full project context instantly. Kept current as the project evolves.
 
 ---
 
 ## What This Project Is
 
-A real-world deployable prototype for **Automated Photo Identification and Classification of Traffic Violations using Computer Vision** (AI/ML competition project, must be demonstrable + deployable).
+A real-world deployable prototype for **Automated Photo Identification and Classification of Traffic Violations using Computer Vision** (AI/ML competition project — must be demonstrable and deployable).
 
 - End-to-end pipeline: video/camera input → preprocessing → detection → tracking → violation checks → OCR → evidence → database → dashboard
-- Built to be demonstrated, not just researched
-- Stack: Python 3.11, YOLO11 (Ultralytics), self-contained IoU tracker, EasyOCR, OpenCV, SQLite/SQLAlchemy, Streamlit, Docker
+- Stack: Python 3.11, YOLO11s (Ultralytics), self-contained IoU tracker, EasyOCR, OpenCV, SQLite/SQLAlchemy, Streamlit, Docker
 
 ---
 
 ## Current Status (2026-06-21)
 
-**Working end-to-end on GPU.** Verified: full pipeline runs on a real traffic video on a GTX 1650, generates annotated evidence (illegal_parking + stop_line seen firing), 23/23 unit tests pass.
+**Working end-to-end on GPU.** Full pipeline verified on a real traffic video on RTX 3050 Ti (Lenovo Legion Slim 7i, i7 12th Gen, 16GB DDR5). Violations firing: `illegal_parking` and `stop_line` confirmed. Pipeline is now optimized with `TrackMemory` for heavy ML caching. 36/36 unit tests pass.
 
-| Thing | State |
-|---|---|
-| Environment | Python **3.11.9** venv at `venv/` (system Python is 3.13 which CANNOT install torch/paddle — must use 3.11). torch 2.5.1+cu121, CUDA works on GTX 1650 |
-| Vehicle/person model | `models/weights/yolo11s.pt` — COCO pretrained, detects car/bus/truck/motorcycle/person ✅ |
-| Helmet model | `models/weights/helmet_yolov8.pt` — TRAINED on Colab. Classes: `rider`, `rider_full_face`, `rider_half_face`, `rider_helmet_invalid`, `rider_no_helmet` ✅ |
-| Plate model | `models/weights/plate_yolov8.pt` — TRAINED on Colab. Class: `License_Plate` ✅ |
-| OCR | EasyOCR (GPU) — reads plates ~0.90 conf ✅ |
+| Component | State |
+|-----------|-------|
+| Environment | Python **3.11.9** venv at `venv/`. System Python is 3.13 — **do NOT use it** (torch/paddle have no 3.13 wheels). torch 2.5.1+cu121, CUDA working on RTX 3050 Ti. |
+| Vehicle/person model | `models/weights/yolo11s.pt` — COCO pretrained ✅ |
+| Helmet model | `models/weights/helmet_yolov8.pt` — **TRAINED on Colab T4** ✅ |
+| Plate model | `models/weights/plate_yolov8.pt` — **TRAINED on Colab T4** ✅ |
+| OCR | EasyOCR (GPU via torch) ✅ |
 | Seatbelt CNN | Not trained → correctly returns `indeterminate` |
-| Git | branch `feature/training-deploy-pipeline` pushed to origin (`github.com/raunaqmittal/...`) |
+| Docker | `Dockerfile` + `docker-compose.yml` present — CPU image, GPU note inside |
+| Tests | 36/36 passing (`pytest tests/ -q`) |
+| Git | `main` branch on `github.com/raunaqmittal/Traffic-Violations-Using-Computer-Vision` |
 
-**Helmet model metrics (best epoch 54, for the report):** overall mAP@50 = 0.578, P = 0.61, R = 0.51. Key violation class **`rider_no_helmet`: mAP@50 = 0.88, P = 0.83, R = 0.80** (strong). Low overall is dragged by a broken 1-sample `rider` class — not worth retraining. **Plate model metrics still to be captured.**
+**Helmet model metrics (best.pt — epoch 54):**
+- Overall: mAP@50 = 0.578, Precision = 0.61, Recall = 0.51
+- `rider_no_helmet` class: **mAP@50 = 0.88, P = 0.83, R = 0.80** (strong — the violation class)
+- Low overall dragged by a broken 1-sample `rider` class — not worth retraining
 
-**Open items:** capture plate-model mAP; get a real Indian traffic video with riders/plates for a fuller demo (or use `scripts/images_to_video.py` on the helmet dataset images); optionally build `03_evaluation.ipynb`.
+**Open items:**
+- Capture plate model mAP (not done yet)
+- Get a real Indian traffic video with riders and plates for a fuller demo (or use `scripts/images_to_video.py` on helmet dataset images)
+- Optionally build `notebooks/03_evaluation.ipynb`
 
 ---
 
@@ -38,15 +45,15 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 
 | Violation | Detection Method |
 |-----------|-----------------|
-| Helmet non-compliance | Helmet YOLO run on the **full frame**; `rider_no_helmet` heads associated to motorcycle tracks (upward-expanded-box containment). Not a head-crop classifier — COCO motorcycle boxes exclude the head. |
-| Seatbelt non-compliance | Binary CNN on windshield crop of car bbox; marks `indeterminate` if crop too small or model not trained |
-| Triple riding | Rule: count persons whose box is ≥ 50% **contained** in the motorcycle box (`min_person_overlap_ratio`); if ≥ 3 → violation. (Containment, not IoU — small rider boxes score low IoU.) |
-| Wrong-side driving | Rule: centroid direction vector vs `allowed_direction_deg` in camera config for N consecutive frames |
+| Helmet non-compliance | Full-frame helmet YOLO → `rider_no_helmet` heads associated to motorcycle tracks via upward-expanded bbox containment. NOT a head-crop (COCO motorcycle boxes exclude the rider's head). |
+| Seatbelt non-compliance | Binary CNN on windshield crop of car bbox; marks `indeterminate` if crop too small or model untrained |
+| Triple riding | Rule: count persons whose bbox is ≥ 50% **contained** (not IoU) in motorcycle bbox; ≥ 3 → violation |
+| Wrong-side driving | Rule: centroid direction vector vs `allowed_direction_deg` for N consecutive frames |
 | Stop-line violation | Rule: vehicle centroid past virtual line when signal is red/unknown |
 | Red-light violation | Rule: confirmed red signal (HSV) + moving vehicle past stop line |
-| Illegal parking | Rule: vehicle centroid inside no-parking polygon + stationary for ≥ 3 minutes (configurable). Emits `violation_type="illegal_parking"`. |
+| Illegal parking | Rule: vehicle centroid inside no-parking polygon + stationary ≥ 3 min (configurable) |
 
-**Excluded (not in problem statement):** mobile phone detection, lane violation.
+**Excluded (never in problem statement):** mobile phone detection, lane violation.
 
 ---
 
@@ -59,89 +66,121 @@ Image Preprocessing  (CLAHE low-light, blur detection via Laplacian variance, ra
       ↓
 Vehicle & Road User Detection  (YOLO11s, COCO — car, truck, bus, motorcycle, person)
       ↓
-IoU Tracker  (self-contained greedy IoU association — stable IDs + centroid history)
+IoU Tracker  (self-contained greedy IoU — stable IDs + 60-frame centroid history)
+      ↓
+TrackMemory Manager (caches ML inferences per track ID, rechecks on schedule or low confidence)
       ↓
 Violation Detection Engine
-  ├── Helmet         → full-frame helmet YOLO + associate no-helmet heads to motorcycles
-  ├── Seatbelt       → Binary CNN (indeterminate fallback)
-  ├── Triple Riding  → person-containment rule
-  ├── Wrong-side     → direction vector rule
-  ├── Stop-line      → virtual line + signal state
+  ├── Helmet         → full-frame helmet YOLO (cached per bike) + associate no-helmet heads
+  ├── Seatbelt       → Binary CNN (cached per car, indeterminate fallback)
+  ├── Triple Riding  → person-containment rule (intersection / person-area)
+  ├── Wrong-side     → direction vector rule on centroid history
+  ├── Stop-line      → virtual line + signal state (HSV)
   ├── Red-light      → signal ROI (HSV) + vehicle position
   └── Illegal Parking→ polygon containment + dwell timer
       ↓
 Violation Classifier & Confidence Scorer
-  (confidence ≥ threshold → auto_flagged | below → review | crop unusable → indeterminate)
+  (≥ threshold → auto_flagged | below → review | unusable → indeterminate)
       ↓
-License Plate Detection (YOLO fine-tuned, class License_Plate) + EasyOCR
+License Plate Detection + EasyOCR (triggered only on violation, result cached per vehicle)
       ↓
 Evidence Generator  (annotated JPEG + JSON sidecar per violation)
       ↓
-SQLite Database  (via SQLAlchemy — upgradeable to Postgres by changing connection string)
+SQLite Database  (SQLAlchemy — swap connection string for Postgres)
       ↓
-Streamlit Dashboard  (KPIs, charts by type/date, searchable table, image viewer, CSV export)
+Streamlit Dashboard  (KPIs, charts, searchable table, image viewer, CSV export)
 ```
 
 ---
 
-## Project Structure
+## Complete File Structure
 
 ```
-Traffic-Violations-Using-Computer-Vision/
+traffic project/                              ← repo root
 │
-├── app.py                                ← CLI entry point
-├── requirements.txt                      ← torch+cu121 installed separately; easyocr (not paddle)
+├── app.py                                    ← CLI: --video, --camera, --dry-run, --show, --dashboard
+├── requirements.txt                          ← easyocr (NOT paddle); torch installed separately
 ├── README.md
-├── .gitignore                            ← covers .pt, .mp4, DB+journal, venv, artifacts, cache
-├── Dockerfile                            ← Python 3.11 image (CPU; GPU note inside)
-├── docker-compose.yml                    ← dashboard + pipeline services, shared volumes
+├── .gitignore                                ← comprehensive: .pt/.pth/.mp4/DB/venv/cache
+├── Dockerfile                                ← python:3.11-slim CPU image; GPU note inside
+├── docker-compose.yml                        ← dashboard + pipeline services, shared volumes
 ├── .dockerignore
 │
 ├── configs/
-│   ├── pipeline.yaml                     ← model paths, FPS, device (cuda), JPEG quality
-│   ├── cameras.yaml                      ← per-camera: stop line, signal ROI, no-parking polygons
-│   └── violations.yaml                   ← per-violation thresholds, dwell times, ROI fractions
+│   ├── pipeline.yaml                         ← device: cuda; vehicle_detector: yolo11s.pt
+│   ├── cameras.yaml                          ← stop_line, signal_roi, no_parking_zones per camera
+│   └── violations.yaml                       ← illegal_parking key; min_person_overlap_ratio: 0.5
 │
 ├── src/
-│   ├── config.py                         ← YAML loaders
-│   ├── models.py                         ← dataclasses: Detection, TrackedObject, ViolationRecord
-│   ├── preprocessing/frame_processor.py  ← process_frame() → (frame, FrameQuality)
+│   ├── config.py                             ← load_pipeline(), load_cameras(), load_violations(), load_tracker_config()
+│   ├── models.py                             ← Detection, TrackedObject, ViolationRecord dataclasses
+│   ├── preprocessing/
+│   │   └── frame_processor.py               ← process_frame() → (frame, FrameQuality)
 │   ├── detection/
-│   │   ├── vehicle_detector.py           ← VehicleDetector (YOLO wrapper, filters to vehicle classes)
-│   │   └── plate_detector.py             ← PlateDetector (+ crop-coord translation)
-│   ├── tracking/tracker.py               ← Tracker — self-contained IoU tracker (NOT ByteTrack)
+│   │   ├── vehicle_detector.py              ← VehicleDetector (YOLO11 wrapper, class whitelist)
+│   │   └── plate_detector.py               ← PlateDetector + crop-coord translation
+│   ├── tracking/
+│   │   ├── tracker.py                      ← Tracker (self-contained IoU — NOT ByteTrack/BYTETracker)
+│   │   └── track_memory.py                 ← TrackMemory (caches expensive ML results per track ID)
 │   ├── violations/
-│   │   ├── classifier.py                 ← route(record) → status from confidence threshold
-│   │   ├── signal_utils.py               ← detect_signal_state() → "red"|"green"|"unknown"
-│   │   ├── triple_riding.py / wrong_side.py / stop_line.py / red_light.py / parking.py
-│   │   ├── helmet.py                     ← HelmetChecker (full-frame detect + associate)
-│   │   └── seatbelt.py                   ← SeatbeltChecker + _SeatbeltCNN
-│   ├── ocr/plate_reader.py               ← PlateReader (EasyOCR) → PlateReadResult
-│   ├── evidence/generator.py             ← EvidenceGenerator.save() → annotated JPEG + JSON
-│   ├── database/{schema.py, repository.py}
-│   ├── analytics/stats.py
-│   └── evaluation/metrics.py             ← classification_metrics, ocr_accuracy, average_precision, FPSTimer
+│   │   ├── classifier.py                   ← route(record) → sets status from per-violation threshold
+│   │   ├── signal_utils.py                 ← detect_signal_state() → "red"|"green"|"unknown"
+│   │   ├── triple_riding.py               ← containment rule (min_overlap_ratio, not IoU)
+│   │   ├── wrong_side.py
+│   │   ├── stop_line.py
+│   │   ├── red_light.py
+│   │   ├── parking.py                     ← key in violations.yaml: illegal_parking
+│   │   ├── helmet.py                      ← HelmetChecker: full-frame detect + upward-bbox association
+│   │   └── seatbelt.py                    ← SeatbeltChecker + _SeatbeltCNN (indeterminate until trained)
+│   ├── ocr/
+│   │   └── plate_reader.py               ← PlateReader (EasyOCR, NOT PaddleOCR)
+│   ├── evidence/
+│   │   └── generator.py                  ← EvidenceGenerator.save() → annotated JPEG + JSON
+│   ├── database/
+│   │   ├── schema.py                     ← SQLAlchemy table + init_db()
+│   │   └── repository.py               ← insert_violation, query_violations, count_by_*, export_csv
+│   ├── analytics/
+│   │   └── stats.py
+│   └── evaluation/
+│       └── metrics.py                   ← classification_metrics, ocr_accuracy, average_precision, FPSTimer
 │
-├── pipelines/video_pipeline.py           ← main run() — wires all modules; lazy ML imports for --dry-run
-├── dashboard/app.py                      ← Streamlit dashboard
+├── pipelines/
+│   └── video_pipeline.py               ← run() — wires all modules; lazy ML imports for --dry-run
+│
+├── dashboard/
+│   └── app.py                          ← Streamlit: KPIs, bar chart, trend line, table, image viewer, CSV
 │
 ├── scripts/
-│   ├── download_models.py                ← downloads COCO YOLO vehicle weights
-│   ├── download_datasets.py              ← pulls helmet/plate datasets (Roboflow/Kaggle)
-│   ├── images_to_video.py                ← build a demo video from an image folder
-│   └── draw_zones.py                     ← interactive OpenCV zone editor
+│   ├── download_models.py              ← downloads COCO YOLO vehicle weights
+│   ├── download_datasets.py           ← pulls helmet/plate datasets (Roboflow/Kaggle)
+│   ├── images_to_video.py             ← builds a demo .mp4 from an image folder
+│   └── draw_zones.py                  ← interactive OpenCV zone editor → prints cameras.yaml YAML
 │
-├── models/weights/                       ← yolo11s.pt, helmet_yolov8.pt, plate_yolov8.pt (gitignored)
-├── data/samples/                         ← test clips (gitignored: *.mp4)
-├── artifacts/                            ← evidence/ + violations.db (gitignored, runtime)
+├── models/
+│   └── weights/                       ← yolo11s.pt, helmet_yolov8.pt, plate_yolov8.pt (in .gitignore)
+│
+├── data/
+│   ├── raw/                           ← gitignored
+│   ├── samples/                       ← test clips (*.mp4 gitignored)
+│   └── seatbelt_crops/
+│       ├── seatbelt/
+│       └── no_seatbelt/
+│
+├── artifacts/
+│   └── evidence/                      ← runtime output, gitignored
 │
 ├── notebooks/
-│   └── 01_train_models_colab.ipynb       ← trains helmet + plate detectors on Colab T4
+│   └── 01_train_models_colab.ipynb   ← trains helmet + plate on Colab T4
 │
-├── tests/                                ← test_preprocessing.py, test_violations.py, test_ocr.py
+├── tests/
+│   ├── test_preprocessing.py
+│   ├── test_violations.py
+│   └── test_ocr.py
+│
 └── docs/
     ├── Traffic_Violation_Final_Implementation_Plan.md  ← PRIMARY source of truth
-    ├── COLAB_GUIDE.md                                  ← training workflow
+    ├── COLAB_GUIDE.md                                  ← Colab training workflow
+    ├── resources.md                                    ← datasets, models, tools checklist
     └── context.md                                      ← this file
 ```
 
@@ -161,85 +200,128 @@ class TrackedObject:
 
 @dataclass
 class ViolationRecord:
-    violation_type: str          # "helmet", "triple_riding", "illegal_parking", ...
+    violation_type: str        # "helmet" | "seatbelt" | "triple_riding" |
+                               # "wrong_side" | "stop_line" | "red_light" | "illegal_parking"
     confidence: float; vehicle_id: int; bbox: tuple
     timestamp: str; frame_id: int
     plate_number: str | None; plate_confidence: float | None
-    status: str                  # "auto_flagged" | "review" | "indeterminate"
+    status: str                # "auto_flagged" | "review" | "indeterminate"
     evidence_image_path: str | None; evidence_json_path: str | None
     is_blurry: bool; camera_id: str
 ```
 
 ---
 
-## Configuration Notes
+## Critical Config Notes
 
-- `configs/pipeline.yaml` — `models.vehicle_detector` = `yolo11s.pt`; `inference.device` = `cuda`.
-- `configs/violations.yaml` — triple riding key is `min_person_overlap_ratio` (0.5); parking section is keyed `illegal_parking`; helmet has `flag_invalid_helmet` (default false).
-- `configs/cameras.yaml` — set zones with `python scripts/draw_zones.py --video <clip>`.
+| File | Critical key | Value |
+|------|-------------|-------|
+| `pipeline.yaml` | `models.vehicle_detector` | `models/weights/yolo11s.pt` (YOLO11, not v8) |
+| `pipeline.yaml` | `inference.device` | `cuda` (RTX 3050 Ti confirmed working) |
+| `violations.yaml` | parking section key | `illegal_parking` (NOT `parking`) |
+| `violations.yaml` | triple riding key | `min_person_overlap_ratio` (NOT `min_person_overlap_iou`) |
+| `violations.yaml` | `helmet.flag_invalid_helmet` | `false` by default; set `true` to also flag improperly-worn helmets |
+| `cameras.yaml` | All geometry | Set with `python scripts/draw_zones.py --video <clip>` |
+
+---
+
+## Bugs Fixed (history — do not reintroduce)
+
+| Bug | Fix |
+|-----|-----|
+| `np.trapz` removed in NumPy 2.x | Changed to `np.trapezoid` in `metrics.py` |
+| `triple_riding.py` used IoU | Changed to containment (intersection / person-area); IoU missed real triple-riding |
+| `tracker.py` used private `BYTETracker` internal API | Replaced with self-contained IoU tracker (no external dep, stable) |
+| `helmet.py` cropped top-fraction of motorcycle bbox | COCO motorcycle box excludes rider head; changed to full-frame detect + upward association |
+| `plate_reader.py` used PaddleOCR | PaddlePaddle 3.x oneDNN runtime bug on Windows; swapped to EasyOCR |
+| `video_pipeline.py` eager ML imports | Made lazy (inside `if not dry_run:`) so `--dry-run` works without torch/easyocr |
+| violations.yaml config | `parking` key → `illegal_parking`; `min_person_overlap_iou` → `min_person_overlap_ratio` |
+| Expensive ML ran every frame | Implemented `TrackMemory` for helmet/seatbelt/plate caching, synced to tracker |
+| DB flooded with `indeterminate` | `TrackMemory` ensures seatbelt `indeterminate` is emitted only once per car |
 
 ---
 
 ## How to Run
 
 ```powershell
-cd Traffic-Violations-Using-Computer-Vision
+cd "c:\Users\rauna\Videos\traffic project"
 .\venv\Scripts\activate
 
-python app.py --video data\samples\test_video.mp4 --show   # full pipeline (GPU)
-python app.py --video 0                                     # webcam
-python app.py --video data\samples\test_video.mp4 --dry-run # preprocessing only (no ML stack needed)
-python app.py --dashboard                                   # Streamlit on :8501
-python -m pytest tests\ -q                                  # tests
+# Full pipeline (GPU)
+python app.py --video data\samples\test_video.mp4 --show
+
+# Webcam
+python app.py --video 0
+
+# RTSP stream
+python app.py --video rtsp://192.168.1.10/stream
+
+# Preprocessing-only (no torch/easyocr needed)
+python app.py --video data\samples\test_video.mp4 --dry-run
+
+# Streamlit dashboard on http://localhost:8501
+python app.py --dashboard
+
+# Tests
+python -m pytest tests\ -q
 ```
 
 ### Docker
+
 ```bash
 docker compose build
-docker compose up dashboard                                           # UI on :8501
+docker compose up dashboard                          # UI on :8501
 docker compose run --rm pipeline python app.py --video data/samples/test_video.mp4
 ```
 
 ---
 
-## Setup From Scratch
+## Setup From Scratch (New Machine)
 
 ```powershell
-# 1. Python 3.11 venv (NOT 3.13 — paddle/torch have no 3.13 wheels)
-py -3.11 -m venv venv; .\venv\Scripts\activate
+# 1. Python 3.11 venv (NOT 3.13 — no torch/paddle wheels for 3.13)
+py -3.11 -m venv venv
+.\venv\Scripts\activate
 
-# 2. GPU torch first, then the rest
+# 2. GPU torch first (MUST precede requirements.txt)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# 3. Remaining deps
 pip install -r requirements.txt
 
-# 3. Vehicle weights (helmet/plate are trained on Colab — see docs/COLAB_GUIDE.md)
+# 4. Vehicle COCO weights
 python scripts/download_models.py
-# place helmet_yolov8.pt + plate_yolov8.pt in models/weights/
+
+# 5. Place trained weights in models/weights/
+#    helmet_yolov8.pt + plate_yolov8.pt (from Colab — see docs/COLAB_GUIDE.md)
+
+# 6. Set up camera zones (run once per camera)
+python scripts/draw_zones.py --video data\samples\test_video.mp4
+# Paste output into configs/cameras.yaml
+
+# 7. Run
+python app.py --video data\samples\test_video.mp4 --show
 ```
 
-Training: `scripts/download_datasets.py` pulls datasets → `notebooks/01_train_models_colab.ipynb` trains on Colab T4 → download `best.pt` weights locally. Vehicle/person detection uses pretrained COCO YOLO (NOT fine-tuned — fine-tuning on a vehicle-only set would erase the `person` class that triple-riding and helmet association need).
+---
+
+## Training Workflow (Colab)
+
+`scripts/download_datasets.py` pulls datasets → `notebooks/01_train_models_colab.ipynb` trains helmet + plate detectors on Colab T4 (free) → download `best.pt` → place in `models/weights/`.
+
+**Vehicle model is deliberately NOT fine-tuned** — fine-tuning on a vehicle-only set erases the `person` class which triple-riding and helmet association depend on.
+
+See `docs/COLAB_GUIDE.md` for step-by-step.
 
 ---
 
-## Bugs Fixed (history, so they don't regress)
+## Known Limitations
 
-- `metrics.py`: `np.trapz` → `np.trapezoid` (removed in NumPy 2.x); `average_precision` returns 0 (not phantom 0.5) when there are no predictions.
-- `triple_riding.py`: IoU → containment (intersection / person-area).
-- `tracker.py`: replaced private ultralytics `BYTETracker` call (broke on 8.4.x) with a self-contained IoU tracker.
-- `helmet.py`: full-frame detection + motorcycle association instead of a fixed top-fraction head crop (which missed the head).
-- `plate_reader.py`: PaddleOCR → EasyOCR (paddle 3.x oneDNN runtime bug; EasyOCR uses the same CUDA GPU).
-- `video_pipeline.py`: lazy ML imports so `--dry-run` works without torch/easyocr.
-- config: parking key `parking` → `illegal_parking`; triple key → `min_person_overlap_ratio`.
-
----
-
-## Known Limitations (Documented Honestly)
-
-- **Seatbelt**: `indeterminate` until the binary CNN is trained (correct behaviour, not a bug).
-- **Auto-rickshaw**: COCO has no such class; falls under `motorcycle`/`car`. Fine-tune on IDD if needed.
-- **Rain handling**: classical filter only (median blur + unsharp), not a deraining network.
-- **Signal detection**: HSV-based; may fail under extreme overexposure / nighttime.
-- **Parking dwell timer**: resets on track ID switch under occlusion (tracker limitation).
+- **Seatbelt**: `indeterminate` until binary CNN trained (~300 labelled windshield crops needed)
+- **Auto-rickshaw**: COCO has no such class; falls under `motorcycle` / `car`
+- **Rain handling**: classical filter only (median blur + unsharp); not a deraining network
+- **Signal detection**: HSV-based; may fail under overexposure or night wash-out
+- **Parking dwell timer**: resets on track ID switch under occlusion
 
 ---
 
@@ -248,32 +330,28 @@ Training: `scripts/download_datasets.py` pulls datasets → `notebooks/01_train_
 | Component | Technology |
 |-----------|-----------|
 | Vehicle/person detection | YOLO11s (Ultralytics) — pretrained COCO |
-| Plate detection | YOLO — fine-tuned, class `License_Plate` |
-| Helmet detection | YOLO — fine-tuned, full-frame + association |
-| Seatbelt classification | Custom `_SeatbeltCNN` (PyTorch) |
-| Tracking | Self-contained IoU tracker |
+| Plate detection | YOLO — Colab-trained, class `License_Plate` |
+| Helmet detection | YOLO — Colab-trained, full-frame + association |
+| Seatbelt | Custom `_SeatbeltCNN` (PyTorch) — 3-layer CNN |
+| Tracking | Self-contained greedy IoU tracker |
 | OCR | EasyOCR (GPU via torch) |
 | Preprocessing | OpenCV (CLAHE, Laplacian, median blur) |
-| Database | SQLite via SQLAlchemy (Postgres-ready) |
+| Database | SQLite via SQLAlchemy |
 | Dashboard | Streamlit |
+| Optimization | `TrackMemory` — per-track result caching with occlusion recheck logic |
 | Deployment | Docker + docker-compose |
-| Evaluation | scikit-learn + custom mAP |
-| Tests | pytest |
+| Evaluation | scikit-learn + custom mAP (np.trapezoid) |
+| Tests | pytest (36/36 passing) |
 
 ---
 
-## Performance Evaluation Targets (per §4.8 of implementation plan)
+## What Still Needs to Be Done
 
-| Stage | Metric |
-|-------|--------|
-| Vehicle / helmet / plate detection | mAP@0.5, Precision, Recall |
-| Violation classification | Accuracy, F1-score per violation type |
-| OCR | Plate-level exact-match accuracy |
-| System throughput | FPS on target hardware |
-| Scalability | Behaviour under multiple concurrent streams |
-
----
-
-## Commit Hygiene
-
-`.gitignore` excludes: `.pt`/`.pth`/`.onnx` weights, `.mp4` videos, SQLite `.db`/`.db-journal`/`.db-wal`, `venv/`, `artifacts/evidence/`, logs, caches. Source, configs, `app.py`, `requirements.txt`, docs, the notebook, Dockerfile/compose are committed. 59 tracked files; 0 files >1MB.
+| Item | Priority |
+|------|----------|
+| Plate model mAP metrics (screenshot for report) | High |
+| Real Indian traffic video with riders + plates for demo | High |
+| Camera zone setup on actual footage (`draw_zones.py`) | High |
+| `notebooks/03_evaluation.ipynb` | Medium |
+| Seatbelt dataset collection + CNN training | Low |
+| Auto-rickshaw fine-tuning (IDD dataset) | Low |

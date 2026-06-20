@@ -166,27 +166,29 @@ No OpenAI, no Google Vision API, no AWS, no Azure — everything runs on your ma
 
 | Resource | Source | Priority | Status |
 |----------|--------|----------|--------|
-| `yolov8m.pt` (vehicle) | Auto-downloaded by Ultralytics | P1 | ✅ Auto |
-| `helmet_yolov8.pt` | Roboflow Universe | P1 | ❌ |
-| `plate_yolov8.pt` | Roboflow Universe | P1 | ❌ |
-| Test video (`.mp4`) | YouTube / your camera | P2 | ❌ |
-| Seatbelt crop images | Manual collection (~300) | P2 | ❌ |
-| Evaluation labels (100–200 frames) | Label Studio / CVAT | P2 | ❌ |
-| Indian road dataset (IDD) | idd.insaan.iiit.ac.in | P3 optional | ⚠️ |
-| Roboflow account | roboflow.com | P3 | ❌ |
-| Kaggle account | kaggle.com | P3 | ❌ |
-| Label Studio | pip install | P3 | ❌ |
+| `yolo11s.pt` (vehicle) | Auto-downloaded by Ultralytics | P1 | ✅ Done |
+| `helmet_yolov8.pt` | **Trained on Colab T4** | P1 | ✅ Done |
+| `plate_yolov8.pt` | **Trained on Colab T4** | P1 | ✅ Done |
+| EasyOCR (replaces PaddleOCR) | pip install easyocr | P1 | ✅ Done |
+| Docker setup | Dockerfile + docker-compose.yml | P1 | ✅ Done |
+| Test video (`.mp4`) | YouTube / your camera | P2 | ❌ Still needed |
+| Seatbelt crop images | Manual collection (~300) | P2 | ❌ Optional |
+| Plate model mAP metrics | Capture from Colab training run | P2 | ❌ Still needed |
+| Evaluation labels (100–200 frames) | Label Studio / CVAT | P2 | ❌ For report |
+| Camera zone config | `scripts/draw_zones.py` on real footage | P2 | ❌ Still needed |
+| Indian road dataset (IDD) | idd.insaan.iiit.ac.in | P3 optional | ⚠️ Only if accuracy is poor |
+| Roboflow account | roboflow.com | P3 | ✅ Used for training |
+| Kaggle account | kaggle.com | P3 | ✅ Used for training |
 
 ---
 
 ## Minimum to Get the Pipeline Running (Demo-Ready)
 
-If you want to run a demo as fast as possible, collect only these 3 things:
+✅ **Models are already trained and in `models/weights/`.** The minimum you still need:
 
-1. **Any traffic video** → `data/samples/test_video.mp4`
-2. **Helmet model** from Roboflow → `models/weights/helmet_yolov8.pt`
-3. **Plate model** from Roboflow → `models/weights/plate_yolov8.pt`
+1. **A real Indian traffic video** → `data/samples/test_video.mp4`
+   - Use `scripts/images_to_video.py` on helmet dataset images as a stopgap
+2. **Camera zone config** → run `python scripts/draw_zones.py --video <your_clip>` and paste output into `configs/cameras.yaml`
+3. **Plate model mAP** → go back to the Colab training run, cell 5 prints metrics — screenshot for the report
 
-The 5 rule-based violations (triple riding, wrong-side, stop-line, red-light, parking) will work immediately with zero additional resources once camera zones are configured.
-
-Seatbelt will show as `indeterminate` — which is the correct honest fallback, not an error.
+Seatbelt shows as `indeterminate` — correct honest fallback, not an error.

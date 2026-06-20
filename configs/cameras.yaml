@@ -19,16 +19,14 @@ cameras:
 
     # Virtual stop line — vehicles crossing this line when signal is red = violation.
     # List of two [x, y] points defining the line across the lane.
-    stop_line: [[200, 600], [900, 600]]
+    stop_line: [[27, 635], [1105, 659]]
 
     # ROI for traffic signal light — used to detect red/green state.
-    # Format: [x1, y1, x2, y2]
-    signal_roi: [950, 100, 1050, 250]
+    # Set to a tiny corner since no signal was drawn.
+    signal_roi: [0, 0, 1, 1]
 
     # No-parking zones — list of polygons.
     # Each polygon is a list of [x, y] points (minimum 3 points).
     no_parking_zones:
-      - name: "Bus Stop Clearance"
-        polygon: [[50, 400], [300, 400], [300, 700], [50, 700]]
-      - name: "Junction Box"
-        polygon: [[500, 300], [700, 300], [700, 500], [500, 500]]
+      - name: "Zone_1"
+        polygon: [[1153, 483], [1129, 607], [1238, 612], [1253, 488], [1156, 480], [1128, 708], [1238, 710], [1239, 614], [1131, 609]]

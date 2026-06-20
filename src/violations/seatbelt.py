@@ -5,6 +5,11 @@ binary CNN classifier (seatbelt / no_seatbelt).
 
 If the crop is too small or the model is not loaded, the record is
 marked "indeterminate" and routed to the human review queue.
+
+Track memory integration: results are cached per car track. A car that was
+already classified does not get re-checked until SEATBELT_REFRESH_INTERVAL
+frames later. An indeterminate result is also cached so we don't flood the
+DB with one indeterminate record per car per frame.
 """
 
 import numpy as np
@@ -47,23 +52,52 @@ class SeatbeltChecker:
         frame: np.ndarray,
         frame_id: int,
         camera_id: str = "cam_001",
+        track_memory=None,
     ) -> list[ViolationRecord]:
         violations: list[ViolationRecord] = []
         cars = [t for t in tracks if t.class_name == "car"]
 
         for car in cars:
-            crop = self._crop_windshield(frame, car.bbox)
-            if crop is None:
-                record = self._indeterminate(car, frame_id, camera_id)
-                violations.append(record)
+            # Skip if already cached and not yet due for recheck.
+            if track_memory is not None and not track_memory.needs_seatbelt_check(car.track_id, frame_id):
+                state = track_memory.get(car.track_id)
+                # Emit a violation only once per track.
+                if state and state.seatbelt_status == "no_seatbelt" and not state.seatbelt_violation_emitted:
+                    record = ViolationRecord(
+                        violation_type="seatbelt",
+                        confidence=state.seatbelt_confidence,
+                        vehicle_id=car.track_id,
+                        bbox=car.bbox,
+                        timestamp=datetime.utcnow().isoformat(),
+                        frame_id=frame_id,
+                        camera_id=camera_id,
+                    )
+                    violations.append(route(record))
+                    state.seatbelt_violation_emitted = True
                 continue
 
-            if self.model is None:
-                record = self._indeterminate(car, frame_id, camera_id)
-                violations.append(record)
+            crop = self._crop_windshield(frame, car.bbox)
+            if crop is None or self.model is None:
+                if track_memory is not None:
+                    state = track_memory.get_or_create(car.track_id, "car")
+                    if not state.seatbelt_checked:
+                        state.seatbelt_checked = True
+                        state.seatbelt_status = "indeterminate"
+                        state.last_seatbelt_frame = frame_id
+                        violations.append(self._indeterminate(car, frame_id, camera_id))
+                else:
+                    violations.append(self._indeterminate(car, frame_id, camera_id))
                 continue
 
             confidence, label = self._classify(crop)
+
+            if track_memory is not None:
+                state = track_memory.get_or_create(car.track_id, "car")
+                state.seatbelt_checked = True
+                state.seatbelt_status = label
+                state.seatbelt_confidence = confidence
+                state.last_seatbelt_frame = frame_id
+
             if label == "no_seatbelt":
                 record = ViolationRecord(
                     violation_type="seatbelt",
@@ -75,6 +109,8 @@ class SeatbeltChecker:
                     camera_id=camera_id,
                 )
                 violations.append(route(record))
+                if track_memory is not None:
+                    state.seatbelt_violation_emitted = True
         return violations
 
     def _crop_windshield(self, frame: np.ndarray, bbox: tuple) -> np.ndarray | None:
@@ -98,7 +134,7 @@ class SeatbeltChecker:
         return 1.0 - prob, "seatbelt"
 
     def _indeterminate(self, car: TrackedObject, frame_id: int, camera_id: str) -> ViolationRecord:
-        record = ViolationRecord(
+        return ViolationRecord(
             violation_type="seatbelt",
             confidence=0.0,
             vehicle_id=car.track_id,
@@ -108,7 +144,6 @@ class SeatbeltChecker:
             status="indeterminate",
             camera_id=camera_id,
         )
-        return record
 
     def _load_model(self, path: str) -> nn.Module | None:
         try:
