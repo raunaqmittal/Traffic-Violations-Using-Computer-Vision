@@ -40,6 +40,7 @@ PLATE_W = WEIGHTS / "plate_yolov8.pt"
 _VIOLATION_COLORS = {
     "helmet": (0, 0, 255),
     "triple_riding": (0, 165, 255),
+    "seatbelt": (255, 0, 0),
 }
 
 # Maximum frames to sample from a video upload (keeps it fast on CPU cloud)
@@ -60,9 +61,16 @@ def _device() -> str:
 
 @st.cache_resource(show_spinner="Loading detection models…")
 def load_models(device: str):
+    import importlib
+    import src.detection.plate_detector
+    import src.violations.helmet
+    importlib.reload(src.detection.plate_detector)
+    importlib.reload(src.violations.helmet)
+
     from src.detection.vehicle_detector import VehicleDetector
     from src.detection.plate_detector import PlateDetector
     from src.violations.helmet import HelmetChecker
+    from src.violations.seatbelt import SeatbeltChecker
     from src.ocr.plate_reader import PlateReader
 
     missing = [p.name for p in (VEHICLE_W, HELMET_W, PLATE_W) if not p.exists()]
@@ -74,10 +82,11 @@ def load_models(device: str):
         st.stop()
 
     vehicle = VehicleDetector(str(VEHICLE_W), conf_threshold=0.35, device=device)
-    plate = PlateDetector(str(PLATE_W), conf_threshold=0.30, device=device)
+    plate = PlateDetector(str(PLATE_W), conf_threshold=0.01, device=device)
     helmet = HelmetChecker(str(HELMET_W), conf_threshold=0.35, device=device)
+    seatbelt = SeatbeltChecker(model_path=None, conf_threshold=0.55, device=device)
     reader = PlateReader(use_gpu=(device != "cpu"))
-    return vehicle, plate, helmet, reader
+    return vehicle, plate, helmet, reader, seatbelt
 
 
 def _tracks_from_detections(dets: list[Detection]) -> list[TrackedObject]:
@@ -95,20 +104,31 @@ def _tracks_from_detections(dets: list[Detection]) -> list[TrackedObject]:
 
 
 def _annotate(frame, dets, violations, plates):
+    _CLASS_COLORS = {
+        "person": (255, 50, 255),      # Magenta
+        "motorcycle": (0, 255, 255),   # Yellow
+        "car": (255, 255, 0),          # Cyan
+        "truck": (0, 165, 255),        # Orange
+        "bus": (0, 100, 255),          # Brown/Orange
+        "bicycle": (0, 255, 0)         # Green
+    }
+
     img = frame.copy()
-    # Vehicles / persons — light green boxes.
+    # Vehicles / persons — colored boxes with bold text.
     for d in dets:
         x1, y1, x2, y2 = d.bbox
-        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 200, 0), 1)
-        cv2.putText(img, d.class_name, (x1, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 0), 1)
+        color = _CLASS_COLORS.get(d.class_name, (0, 200, 0))
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(img, d.class_name, (x1, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        
     # Violations — bold coloured boxes.
     for v in violations:
         x1, y1, x2, y2 = v.bbox
         color = _VIOLATION_COLORS.get(v.violation_type, (255, 0, 255))
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
         label = f"{v.violation_type.upper()} {v.confidence:.2f}"
-        cv2.rectangle(img, (x1, y1 - 22), (x1 + 12 * len(label), y1), color, -1)
-        cv2.putText(img, label, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+        cv2.rectangle(img, (x1, y1 - 24), (x1 + 14 * len(label), y1), color, -1)
+        cv2.putText(img, label, (x1 + 2, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     # Plates — boxes + OCR text.
     for (bbox, text, conf) in plates:
         x1, y1, x2, y2 = bbox
@@ -119,13 +139,29 @@ def _annotate(frame, dets, violations, plates):
 
 
 def run_detection(frame: np.ndarray, models, frame_id: int = 0):
-    vehicle, plate, helmet, reader = models
+    vehicle, plate, helmet, reader, seatbelt = models
     dets = vehicle.detect(frame, frame_id=frame_id)
     tracks = _tracks_from_detections(dets)
 
+    raw_violations = []
+    raw_violations += triple_riding.check(tracks, frame_id=frame_id)
+    raw_violations += helmet.check(tracks, frame, frame_id=frame_id)
+    raw_violations += seatbelt.check(tracks, frame, frame_id=frame_id)
+
     violations = []
-    violations += triple_riding.check(tracks, frame_id=frame_id)
-    violations += helmet.check(tracks, frame, frame_id=frame_id)
+    motorcycles = [t for t in tracks if t.class_name in ("motorcycle", "bicycle")]
+    for v in raw_violations:
+        if v.violation_type == "seatbelt":
+            if v.status == "indeterminate":
+                continue
+            
+            # Skip seatbelt checks for people riding bikes
+            cx = (v.bbox[0] + v.bbox[2]) / 2
+            cy = (v.bbox[1] + v.bbox[3]) / 2
+            is_on_bike = any(m.bbox[0] <= cx <= m.bbox[2] and m.bbox[1] <= cy <= m.bbox[3] for m in motorcycles)
+            if is_on_bike:
+                continue
+        violations.append(v)
 
     plates = []
     for p in plate.detect(frame, frame_id=frame_id):
@@ -281,6 +317,7 @@ def main():
             if suffix in {".jpg", ".jpeg", ".png"}:
                 data = np.frombuffer(uploaded.read(), np.uint8)
                 frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                cv2.imwrite("debug.jpg", frame)
                 with st.spinner("Analysing image…"):
                     process_image(frame, models)
 

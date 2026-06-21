@@ -1,10 +1,19 @@
 """
 Seatbelt non-compliance detector.
-Crops the windshield ROI from a car bounding box and runs a lightweight
-binary CNN classifier (seatbelt / no_seatbelt).
 
-If the crop is too small or the model is not loaded, the record is
-marked "indeterminate" and routed to the human review queue.
+Crops the windshield ROI from a car bounding box and runs the pretrained
+RISEF/yolov11s-seatbelt YOLOv11s classifier from HuggingFace.
+
+Model: https://huggingface.co/RISEF/yolov11s-seatbelt
+Classes: ["no_seatbelt", "seat_belt"]
+License: AGPL-3.0 (same as Ultralytics)
+
+On first run the weights (~19 MB) are downloaded via huggingface_hub and
+cached at the path configured in pipeline.yaml (models.seatbelt_classifier).
+Subsequent runs are fully offline.
+
+If the crop is too small, or the download fails, the record is marked
+"indeterminate" and routed to the human review queue.
 
 Track memory integration: results are cached per car track. A car that was
 already classified does not get re-checked until SEATBELT_REFRESH_INTERVAL
@@ -12,14 +21,88 @@ frames later. An indeterminate result is also cached so we don't flood the
 DB with one indeterminate record per car per frame.
 """
 
-import numpy as np
+import logging
+import os
 from datetime import datetime
-import torch
-import torch.nn as nn
-from torchvision import transforms
+from pathlib import Path
+
+import numpy as np
 from PIL import Image
+
 from src.models import TrackedObject, ViolationRecord
 from src.violations.classifier import route
+
+log = logging.getLogger(__name__)
+
+# HuggingFace repo for the pretrained seatbelt classifier.
+_HF_REPO_ID = "RISEF/yolov11s-seatbelt"
+_HF_FILENAME = "weights/best.pt"
+
+# The YOLO classify model outputs these class names.
+# Map them to the internal labels used by the rest of the pipeline.
+_CLASS_TO_LABEL = {
+    "no_seatbelt": "no_seatbelt",
+    "seat_belt":   "seatbelt",
+    # guard against minor name variations
+    "seatbelt":    "seatbelt",
+    "noseatbelt":  "no_seatbelt",
+}
+
+
+def _download_hf_model(cache_path: str) -> str | None:
+    """
+    Download RISEF/yolov11s-seatbelt from HuggingFace Hub to *cache_path*.
+    Returns the resolved local path on success, or None on failure.
+    """
+    dest = Path(cache_path)
+    if dest.exists():
+        log.info("Seatbelt model already cached at %s", dest)
+        return str(dest)
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        log.error(
+            "huggingface_hub is not installed. "
+            "Run: pip install huggingface_hub>=0.23.0"
+        )
+        return None
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        log.info(
+            "Downloading seatbelt model from HuggingFace (%s / %s) → %s",
+            _HF_REPO_ID, _HF_FILENAME, dest,
+        )
+        tmp_path = hf_hub_download(
+            repo_id=_HF_REPO_ID,
+            filename=_HF_FILENAME,
+        )
+        # Copy to the configured cache location so the pipeline can find it later.
+        import shutil
+        shutil.copy2(tmp_path, dest)
+        log.info("Seatbelt model saved to %s", dest)
+        return str(dest)
+    except Exception as exc:
+        log.error("Failed to download seatbelt model: %s", exc)
+        return None
+
+
+def _load_yolo_model(model_path: str, device: str):
+    """Load the YOLO classify model. Returns None on failure."""
+    try:
+        import torch
+        from ultralytics import YOLO
+        
+        model = YOLO(model_path, task="classify")
+        # Warm up device assignment — ultralytics handles device internally
+        # via predict() kwargs; store device for later use.
+        model._seatbelt_device = device
+        log.info("Seatbelt YOLO model loaded from %s (device=%s)", model_path, device)
+        return model
+    except Exception as exc:
+        log.error("Failed to load seatbelt YOLO model: %s", exc)
+        return None
 
 
 class SeatbeltChecker:
@@ -39,12 +122,11 @@ class SeatbeltChecker:
         self.bot_frac = windshield_bottom_fraction
         self.min_w = min_crop_width
         self.min_h = min_crop_height
-        self.model = self._load_model(model_path) if model_path else None
-        self._transform = transforms.Compose([
-            transforms.Resize((64, 64)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5]),
-        ])
+        self.model = self._init_model(model_path)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def check(
         self,
@@ -55,7 +137,10 @@ class SeatbeltChecker:
         track_memory=None,
     ) -> list[ViolationRecord]:
         violations: list[ViolationRecord] = []
-        cars = [t for t in tracks if t.class_name == "car"]
+        
+        # Include 'person' tracks because tight camera angles might only detect the driver.
+        # Coincidentally, the 15%-55% vertical crop of a seated person perfectly captures their chest/torso!
+        cars = [t for t in tracks if t.class_name in ("car", "truck", "bus", "person")]
 
         for car in cars:
             # Skip if already cached and not yet due for recheck.
@@ -113,6 +198,27 @@ class SeatbeltChecker:
                     state.seatbelt_violation_emitted = True
         return violations
 
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _init_model(self, model_path: str | None):
+        """
+        Resolve model path:
+        - If model_path is given and the file exists → load directly.
+        - If model_path is given but file is missing → treat as the HF cache
+          destination and auto-download.
+        - If model_path is None → use default HF cache path and auto-download.
+        """
+        cache_path = model_path or os.path.join("models", "weights", "seatbelt_yolov11s.pt")
+        resolved = _download_hf_model(cache_path)
+        if resolved is None:
+            log.warning(
+                "Seatbelt model unavailable — all results will be 'indeterminate'."
+            )
+            return None
+        return _load_yolo_model(resolved, self.device)
+
     def _crop_windshield(self, frame: np.ndarray, bbox: tuple) -> np.ndarray | None:
         x1, y1, x2, y2 = bbox
         h = y2 - y1
@@ -124,14 +230,32 @@ class SeatbeltChecker:
         return crop
 
     def _classify(self, crop: np.ndarray) -> tuple[float, str]:
+        """
+        Run YOLO classify inference on the windshield crop.
+        Returns (confidence, internal_label) where internal_label is one of
+        "seatbelt" | "no_seatbelt".
+        """
+        # Convert BGR → RGB for YOLO
         pil_img = Image.fromarray(crop[:, :, ::-1])
-        tensor = self._transform(pil_img).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            logits = self.model(tensor)
-            prob = torch.sigmoid(logits).item()
-        if prob >= self.conf:
-            return prob, "no_seatbelt"
-        return 1.0 - prob, "seatbelt"
+
+        results = self.model.predict(
+            source=pil_img,
+            device=self.device,
+            verbose=False,
+        )
+
+        probs = results[0].probs          # ultralytics Probs object
+        top1_idx = int(probs.top1)
+        top1_conf = float(probs.top1conf)
+        raw_name = self.model.names[top1_idx]  # e.g. "no_seatbelt" or "seat_belt"
+
+        internal_label = _CLASS_TO_LABEL.get(raw_name.lower(), "seatbelt")
+
+        # Apply local conf_threshold: if the model is uncertain, fall back to seatbelt
+        if top1_conf < self.conf:
+            return top1_conf, "seatbelt"
+
+        return top1_conf, internal_label
 
     def _indeterminate(self, car: TrackedObject, frame_id: int, camera_id: str) -> ViolationRecord:
         return ViolationRecord(
@@ -144,30 +268,3 @@ class SeatbeltChecker:
             status="indeterminate",
             camera_id=camera_id,
         )
-
-    def _load_model(self, path: str) -> nn.Module | None:
-        try:
-            model = _SeatbeltCNN()
-            model.load_state_dict(torch.load(path, map_location=self.device))
-            model.eval()
-            return model.to(self.device)
-        except Exception:
-            return None
-
-
-class _SeatbeltCNN(nn.Module):
-    """Lightweight binary CNN for windshield crop classification."""
-
-    def __init__(self):
-        super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 16, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.AdaptiveAvgPool2d(4),
-        )
-        self.classifier = nn.Linear(64 * 4 * 4, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        return self.classifier(x)
