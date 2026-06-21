@@ -124,7 +124,7 @@ def main():
             )
             selected_row = df[df["id"] == selected_id].iloc[0]
             img_path = selected_row.get("evidence_image_path")
-            if img_path and Path(img_path).exists():
+            if pd.notna(img_path) and isinstance(img_path, str) and Path(img_path).exists():
                 st.image(img_path, caption=f"Evidence for ID {selected_id}", use_container_width=True)
             else:
                 st.info("No evidence image saved for this record.")
