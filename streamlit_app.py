@@ -30,6 +30,7 @@ WEIGHTS = ROOT / "models" / "weights"
 VEHICLE_W = WEIGHTS / "yolo11s.pt"
 HELMET_W = WEIGHTS / "helmet_yolov8.pt"
 PLATE_W = WEIGHTS / "plate_yolov8.pt"
+SEATBELT_W = WEIGHTS / "seatbelt.pt"
 
 _VIOLATION_COLORS = {
     "helmet": (0, 0, 255),
@@ -66,7 +67,12 @@ def load_models(device: str):
     plate = PlateDetector(str(PLATE_W), conf_threshold=0.30, device=device)
     helmet = HelmetChecker(str(HELMET_W), conf_threshold=0.35, device=device)
     reader = PlateReader(use_gpu=(device != "cpu"))
-    return vehicle, plate, helmet, reader
+
+    seatbelt = None
+    if SEATBELT_W.exists():
+        from ultralytics import YOLO
+        seatbelt = YOLO(str(SEATBELT_W))
+    return vehicle, plate, helmet, reader, seatbelt
 
 
 def _tracks_from_detections(dets: list[Detection]) -> list[TrackedObject]:
@@ -83,7 +89,7 @@ def _tracks_from_detections(dets: list[Detection]) -> list[TrackedObject]:
     return tracks
 
 
-def _annotate(frame, dets, violations, plates):
+def _annotate(frame, dets, violations, plates, seatbelt_boxes=()):
     img = frame.copy()
     # Vehicles / persons — light boxes.
     for d in dets:
@@ -104,11 +110,16 @@ def _annotate(frame, dets, violations, plates):
         cv2.rectangle(img, (x1, y1), (x2, y2), (255, 200, 0), 2)
         if text:
             cv2.putText(img, text, (x1, y2 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 200, 0), 2)
+    # Seatbelt-model raw detections — cyan (polarity TBD).
+    for (bbox, conf) in seatbelt_boxes:
+        x1, y1, x2, y2 = bbox
+        cv2.rectangle(img, (x1, y1), (x2, y2), (255, 255, 0), 2)
+        cv2.putText(img, f"SEATBELT? {conf:.2f}", (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
     return img
 
 
 def run_detection(frame, models):
-    vehicle, plate, helmet, reader = models
+    vehicle, plate, helmet, reader, seatbelt = models
     dets = vehicle.detect(frame, frame_id=0)
     tracks = _tracks_from_detections(dets)
 
@@ -123,7 +134,16 @@ def run_detection(frame, models):
         result = reader.read(crop)
         plates.append(((x1, y1, x2, y2), result.text if result else "", result.confidence if result else 0.0))
 
-    return dets, violations, plates
+    # Seatbelt model raw detections (polarity TBD — shown to confirm what class 0 means).
+    seatbelt_boxes = []
+    if seatbelt is not None:
+        sres = seatbelt.predict(source=frame, conf=0.30, device=vehicle.device, verbose=False)
+        if sres and sres[0].boxes:
+            for b in sres[0].boxes:
+                x1, y1, x2, y2 = map(int, b.xyxy[0].tolist())
+                seatbelt_boxes.append(((x1, y1, x2, y2), float(b.conf[0])))
+
+    return dets, violations, plates, seatbelt_boxes
 
 
 def main():
@@ -164,8 +184,8 @@ def main():
 
     models = load_models(device)
     with st.spinner("Analysing…"):
-        dets, violations, plates = run_detection(frame, models)
-    annotated = _annotate(frame, dets, violations, plates)
+        dets, violations, plates, seatbelt_boxes = run_detection(frame, models)
+    annotated = _annotate(frame, dets, violations, plates, seatbelt_boxes)
 
     left, right = st.columns(2)
     left.subheader("Annotated evidence")
@@ -187,6 +207,12 @@ def main():
     if read_plates:
         right.subheader("Number plates")
         right.dataframe(read_plates, use_container_width=True)
+
+    if seatbelt_boxes:
+        right.subheader("Seatbelt model (cyan boxes)")
+        right.caption("Calibration: confirm whether these boxes appear on belted or "
+                      "un-belted drivers, then it becomes a seatbelt violation rule.")
+        right.metric("Seatbelt-model detections", len(seatbelt_boxes))
 
 
 if __name__ == "__main__":

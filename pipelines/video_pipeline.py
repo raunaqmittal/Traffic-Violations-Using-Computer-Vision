@@ -122,6 +122,11 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
     processed_count = 0
     t_start = time.time()
 
+    # Dedup: a vehicle in continuous violation is detected on every frame; record
+    # it only once per (violation_type, vehicle_id) so the DB/evidence holds one
+    # ticket per offence instead of one per frame.
+    reported_violations: set[tuple[str, int]] = set()
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -201,6 +206,11 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
 
         # ANPR + evidence for confirmed/review violations
         for v in all_violations:
+            dedup_key = (v.violation_type, v.vehicle_id)
+            if dedup_key in reported_violations:
+                continue
+            reported_violations.add(dedup_key)
+
             if v.status == "indeterminate":
                 insert_violation(v, engine)
                 continue
