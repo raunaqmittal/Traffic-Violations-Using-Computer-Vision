@@ -89,7 +89,7 @@ class HelmetChecker:
 
         violations: list[ViolationRecord] = []
         for moto in motorcycles:
-            conf = self._associate(moto.bbox, violation_heads)
+            conf, head_box = self._associate(moto.bbox, violation_heads)
 
             if track_memory is not None:
                 state = track_memory.get_or_create(moto.track_id, "motorcycle")
@@ -99,9 +99,11 @@ class HelmetChecker:
                     if conf is not None:
                         state.helmet_status = "no_helmet"
                         state.helmet_confidence = conf
+                        state.helmet_bbox = head_box
                     else:
                         state.helmet_status = "ok"
                         state.helmet_confidence = 0.0
+                        state.helmet_bbox = None
 
                 # Emit violation only once per track per detection cycle.
                 if state.helmet_status == "no_helmet" and not state.helmet_violation_emitted:
@@ -109,7 +111,7 @@ class HelmetChecker:
                         violation_type="helmet",
                         confidence=state.helmet_confidence,
                         vehicle_id=moto.track_id,
-                        bbox=moto.bbox,
+                        bbox=getattr(state, "helmet_bbox", moto.bbox) or moto.bbox,
                         timestamp=datetime.utcnow().isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
@@ -122,7 +124,7 @@ class HelmetChecker:
                         violation_type="helmet",
                         confidence=conf,
                         vehicle_id=moto.track_id,
-                        bbox=moto.bbox,
+                        bbox=head_box or moto.bbox,
                         timestamp=datetime.utcnow().isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
@@ -148,7 +150,7 @@ class HelmetChecker:
                     violation_type="helmet",
                     confidence=state.helmet_confidence,
                     vehicle_id=moto.track_id,
-                    bbox=moto.bbox,
+                    bbox=getattr(state, "helmet_bbox", moto.bbox) or moto.bbox,
                     timestamp=datetime.utcnow().isoformat(),
                     frame_id=frame_id,
                     camera_id=camera_id,
@@ -161,7 +163,7 @@ class HelmetChecker:
         self,
         moto_bbox: tuple[int, int, int, int],
         heads: list[tuple[tuple[int, int, int, int], float]],
-    ) -> float | None:
+    ) -> tuple[float | None, tuple[int, int, int, int] | None]:
         x1, y1, x2, y2 = moto_bbox
         w, h = x2 - x1, y2 - y1
         ex1 = x1 - 0.15 * w
@@ -170,10 +172,28 @@ class HelmetChecker:
         ey2 = y2 + 0.1 * h
 
         best_conf = None
-        for (hx1, hy1, hx2, hy2), conf in heads:
+        best_box = None
+        for box, conf in heads:
+            hx1, hy1, hx2, hy2 = box
             cx = (hx1 + hx2) / 2
             cy = (hy1 + hy2) / 2
+            
+            # The helmet model returns the full rider body.
+            # Crop to the top 25% and narrow the width by 50% to isolate the actual head.
+            w_rider = hx2 - hx1
+            h_rider = hy2 - hy1
+            head_h = int(h_rider * 0.25)
+            shrink_w = int(w_rider * 0.25)
+            
+            cropped_head_box = (
+                hx1 + shrink_w, 
+                hy1, 
+                hx2 - shrink_w, 
+                hy1 + head_h
+            )
+            
             if ex1 <= cx <= ex2 and ey1 <= cy <= ey2:
                 if best_conf is None or conf > best_conf:
                     best_conf = conf
-        return best_conf
+                    best_box = cropped_head_box
+        return best_conf, best_box

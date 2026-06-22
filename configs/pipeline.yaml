@@ -10,7 +10,7 @@ models:
   vehicle_detector: "models/weights/yolo11s.pt"
   plate_detector: "models/weights/plate_yolov8.pt"
   helmet_classifier: "models/weights/helmet_yolov8.pt"
-  seatbelt_classifier: "models/seatbelt_classifier/seatbelt_cnn.pth"
+  seatbelt_classifier: "models/weights/seatbelt_yolov11s.pt"  # auto-downloaded from HuggingFace on first run
 
 inference:
   device: "cuda"                  # "cpu" or "cuda" or "cuda:0"

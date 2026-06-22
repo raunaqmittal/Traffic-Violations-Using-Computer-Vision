@@ -20,6 +20,7 @@ class PlateDetector:
             conf=self.conf,
             device=self.device,
             verbose=False,
+            imgsz=1280,
         )
         plates: list[Detection] = []
         if not results:
