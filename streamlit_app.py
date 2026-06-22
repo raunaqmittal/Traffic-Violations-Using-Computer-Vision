@@ -637,6 +637,8 @@ def tab_how_it_works():
 
     st.divider()
     st.subheader("The 7 Violations")
+
+    violations_info = [
         ("🪖 Helmet Non-Compliance", "ML Model", "helmet_yolov8.pt",
          "A fine-tuned YOLO detector scans the full frame for bare heads. "
          "Head detections are spatially associated to motorcycle bounding boxes "
