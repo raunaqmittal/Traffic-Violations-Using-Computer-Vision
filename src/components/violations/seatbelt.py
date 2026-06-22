@@ -259,8 +259,25 @@ class SeatbeltChecker:
         return _load_yolo_model(resolved, self.device)
 
     def _crop_windshield(self, frame: np.ndarray, bbox: tuple) -> np.ndarray | None:
+        """
+        Crop the windshield region from a vehicle bounding box.
+
+        Returns None (→ indeterminate / skip) when:
+        - The crop is too small (min_w / min_h guards).
+        - The vehicle bbox is much wider than it is tall (aspect ratio > 2.0),
+          which indicates a side or rear view where no windshield is visible.
+          Running the seatbelt classifier on the side panel of a bus always
+          produces a confident false positive — the blue/plain surface looks
+          exactly like 'no seatbelt' to the model.
+        """
         x1, y1, x2, y2 = bbox
+        w = x2 - x1
         h = y2 - y1
+
+        # Side-view or rear-view: skip entirely — no windshield visible.
+        if h == 0 or (w / h) > 2.0:
+            return None
+
         cy1 = y1 + int(h * self.top_frac)
         cy2 = y1 + int(h * self.bot_frac)
         crop = frame[cy1:cy2, x1:x2]
