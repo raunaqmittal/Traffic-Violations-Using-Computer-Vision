@@ -6,7 +6,7 @@
 #
 # This is a CPU image so it runs anywhere (laptops, cloud, judges' machines).
 # For GPU, swap the base for `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04`,
-# install python3.11, and set device: "cuda" in configs/pipeline.yaml.
+# install python3.11, and set device: "cuda" in src/configs/pipeline.yaml.
 
 FROM python:3.11-slim
 

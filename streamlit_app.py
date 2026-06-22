@@ -1,4 +1,4 @@
-"""
+﻿"""
 Traffic Violation Detection System — Interactive Demo
 
 Tabs:
@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from src.models import Detection, TrackedObject  # noqa: E402
-import src.violations.triple_riding as triple_riding  # noqa: E402
+import src.components.violations.triple_riding as triple_riding  # noqa: E402
 
 WEIGHTS = ROOT / "models" / "weights"
 VEHICLE_W = WEIGHTS / "yolo11s.pt"
@@ -89,11 +89,11 @@ def _device() -> str:
 # ─────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading detection models…")
 def load_models(device: str):
-    from src.detection.vehicle_detector import VehicleDetector
-    from src.detection.plate_detector import PlateDetector
-    from src.violations.helmet import HelmetChecker
-    from src.violations.seatbelt import SeatbeltChecker
-    from src.ocr.plate_reader import PlateReader
+    from src.components.detection.vehicle_detector import VehicleDetector
+    from src.components.detection.plate_detector import PlateDetector
+    from src.components.violations.helmet import HelmetChecker
+    from src.components.violations.seatbelt import SeatbeltChecker
+    from src.components.ocr.plate_reader import PlateReader
 
     missing = [p.name for p in (VEHICLE_W, HELMET_W, PLATE_W) if not p.exists()]
     if missing:

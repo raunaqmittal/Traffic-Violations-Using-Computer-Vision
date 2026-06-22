@@ -34,7 +34,7 @@ The original plan had 4 priority tiers. Here is what was done, what was skipped,
 - **Note:** OCR was already violation-triggered (not per-frame) in our pipeline. The plan incorrectly claimed "OCR runs every frame." The caching still helps when one vehicle has multiple violations.
 
 ### Config Changes
-- `configs/violations.yaml` — added `refresh_interval` to `helmet` (30) and `seatbelt` (60) sections
+- `src/configs/violations.yaml` — added `refresh_interval` to `helmet` (30) and `seatbelt` (60) sections
 
 ### Tests
 - `tests/test_track_memory.py` — 12 new unit tests covering: creation, refresh intervals, low-confidence recheck, plate caching, stale eviction, unknown track handling
@@ -94,5 +94,5 @@ The original plan had 4 priority tiers. Here is what was done, what was skipped,
 | `src/violations/helmet.py` | Added `track_memory` parameter, caching logic, single-emit per track |
 | `src/violations/seatbelt.py` | Added `track_memory` parameter, caching logic, indeterminate-once per track |
 | `pipelines/video_pipeline.py` | Wired TrackMemory, synced eviction, plate caching in ANPR section |
-| `configs/violations.yaml` | Added `refresh_interval` to helmet (30) and seatbelt (60) |
+| `src/configs/violations.yaml` | Added `refresh_interval` to helmet (30) and seatbelt (60) |
 | `tests/test_track_memory.py` | **NEW** — 12 unit tests |

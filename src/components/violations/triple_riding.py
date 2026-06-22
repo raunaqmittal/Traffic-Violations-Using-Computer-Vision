@@ -1,4 +1,4 @@
-"""
+﻿"""
 Triple riding violation detector.
 Rule: count persons whose bounding box sits substantially inside a motorcycle
 bounding box. If count >= 3, flag the motorcycle track as a triple-riding
@@ -12,7 +12,7 @@ miss real triple-riding cases; containment captures them correctly.
 
 from datetime import datetime
 from src.models import TrackedObject, ViolationRecord
-from src.violations.classifier import route
+from src.components.violations.classifier import route
 
 
 def check(

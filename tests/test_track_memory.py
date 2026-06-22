@@ -1,7 +1,7 @@
-"""Tests for TrackMemory inference caching."""
+﻿"""Tests for TrackMemory inference caching."""
 
 import pytest
-from src.tracking.track_memory import TrackMemory, TrackState
+from src.components.tracking.track_memory import TrackMemory, TrackState
 
 
 class TestTrackMemory:

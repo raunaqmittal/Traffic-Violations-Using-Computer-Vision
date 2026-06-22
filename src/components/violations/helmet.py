@@ -1,4 +1,4 @@
-"""
+﻿"""
 Helmet non-compliance detector.
 
 The helmet model is a full-scene detector trained to localize riders and their
@@ -20,7 +20,7 @@ import numpy as np
 from datetime import datetime
 from ultralytics import YOLO
 from src.models import TrackedObject, ViolationRecord
-from src.violations.classifier import route
+from src.components.violations.classifier import route
 
 _NO_HELMET_MARKERS = ("no_helmet", "no-helmet", "without", "nohelmet")
 

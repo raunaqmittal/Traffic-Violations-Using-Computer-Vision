@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-_CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
+_CONFIG_DIR = Path(__file__).resolve().parent / "configs"
 
 
 def _load(filename: str) -> dict[str, Any]:

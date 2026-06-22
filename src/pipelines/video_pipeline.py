@@ -15,10 +15,10 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.config import load_pipeline, load_violations, get_camera_config, load_tracker_config
-from src.preprocessing.frame_processor import process_frame
+from src.components.preprocessing.frame_processor import process_frame
 from src.models import ViolationRecord
 
 # Heavy ML imports are done lazily inside run() so that --dry-run works
@@ -54,21 +54,21 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
     db_cfg = pipeline_cfg["database"]
 
     if not dry_run:
-        from src.detection.vehicle_detector import VehicleDetector
-        from src.detection.plate_detector import PlateDetector
-        from src.tracking.tracker import Tracker
-        from src.tracking.track_memory import TrackMemory
-        from src.ocr.plate_reader import PlateReader
-        from src.evidence.generator import EvidenceGenerator
+        from src.components.detection.vehicle_detector import VehicleDetector
+        from src.components.detection.plate_detector import PlateDetector
+        from src.components.tracking.tracker import Tracker
+        from src.components.tracking.track_memory import TrackMemory
+        from src.components.ocr.plate_reader import PlateReader
+        from src.components.evidence.generator import EvidenceGenerator
         from src.database.schema import init_db
         from src.database.repository import insert_violation
-        import src.violations.triple_riding as triple_riding
-        import src.violations.wrong_side as wrong_side
-        import src.violations.stop_line as stop_line_mod
-        import src.violations.red_light as red_light_mod
-        import src.violations.parking as parking_mod
-        from src.violations.helmet import HelmetChecker
-        from src.violations.seatbelt import SeatbeltChecker
+        import src.components.violations.triple_riding as triple_riding
+        import src.components.violations.wrong_side as wrong_side
+        import src.components.violations.stop_line as stop_line_mod
+        import src.components.violations.red_light as red_light_mod
+        import src.components.violations.parking as parking_mod
+        from src.components.violations.helmet import HelmetChecker
+        from src.components.violations.seatbelt import SeatbeltChecker
 
         detector = VehicleDetector(
             inf_cfg["vehicle_detector"] if "vehicle_detector" in inf_cfg

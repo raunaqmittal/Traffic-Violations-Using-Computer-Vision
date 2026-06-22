@@ -112,7 +112,7 @@ traffic project/                              ← repo root
 ├── docker-compose.yml                        ← dashboard + pipeline services, shared volumes
 ├── .dockerignore
 │
-├── configs/
+├── src/configs/
 │   ├── pipeline.yaml                         ← device: cuda; vehicle_detector: yolo11s.pt
 │   ├── cameras.yaml                          ← stop_line, signal_roi, no_parking_zones per camera
 │   └── violations.yaml                       ← thresholds, refresh_interval, min_confirm_frames per violation
@@ -327,7 +327,7 @@ python scripts/download_models.py
 
 # 6. Set up camera zones (run once per camera)
 python scripts/draw_zones.py --video data\samples\test_video.mp4
-# Paste output into configs/cameras.yaml
+# Paste output into src/configs/cameras.yaml
 # OR use the Camera Setup tab in: streamlit run streamlit_app.py
 
 # 7. Run

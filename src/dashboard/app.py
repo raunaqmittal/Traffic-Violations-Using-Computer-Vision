@@ -2,7 +2,7 @@
 Traffic Violation Analytics Dashboard — Streamlit app.
 
 Launch: python app.py --dashboard
-   OR:  streamlit run dashboard/app.py
+   OR:  streamlit run src/dashboard/app.py
 """
 
 import sys
@@ -12,7 +12,7 @@ import streamlit as st
 import pandas as pd
 
 # Ensure project root is on path when launched standalone
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.database.schema import init_db
 from src.analytics.stats import violation_summary, search
@@ -25,7 +25,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-_DB_PATH = str(Path(__file__).parent.parent / "artifacts" / "violations.db")
+_DB_PATH = str(Path(__file__).parent.parent.parent / "artifacts" / "violations.db")
 
 
 @st.cache_resource

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Wrong-side driving violation detector.
 Rule: compute displacement vector of the track centroid over recent N frames.
 If the direction deviates from the camera's allowed_direction_deg by more than
@@ -8,7 +8,7 @@ the tolerance for consecutive_wrong_frames frames, flag the vehicle.
 import math
 from datetime import datetime
 from src.models import TrackedObject, ViolationRecord
-from src.violations.classifier import route
+from src.components.violations.classifier import route
 
 
 def check(

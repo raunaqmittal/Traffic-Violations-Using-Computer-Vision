@@ -67,7 +67,7 @@ def print_config(shapes: list):
             signal_roi = [p[0][0], p[0][1], p[1][0], p[1][1]]
         elif s["type"] == "polygon":
             no_parking_zones.append({"name": f"Zone_{i}", "polygon": s["points"]})
-    print("\n# Paste into configs/cameras.yaml:\n")
+    print("\n# Paste into src/configs/cameras.yaml:\n")
     if stop_line:
         print(f"    stop_line: {stop_line}")
     if signal_roi:

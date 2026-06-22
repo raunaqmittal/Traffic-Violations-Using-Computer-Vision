@@ -1,4 +1,4 @@
-"""
+﻿"""
 Illegal parking violation detector.
 Rule: vehicle centroid inside a no-parking polygon for >= dwell_time_seconds seconds.
 
@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 import numpy as np
 from src.models import TrackedObject, ViolationRecord
-from src.violations.classifier import route
+from src.components.violations.classifier import route
 
 
 # dwell_tracker[track_id] = (zone_name, entry_timestamp)

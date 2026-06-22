@@ -171,7 +171,7 @@ No OpenAI, no Google Vision API, no AWS, no Azure — everything runs on your ma
 | EasyOCR (replaces PaddleOCR) | pip install easyocr | P1 | ✅ Done |
 | Docker setup | Dockerfile + docker-compose.yml | P1 | ✅ Done |
 | Test video (`.mp4`) | `data/samples/indian_traffic_test_video.mp4` | P2 | ✅ Done |
-| Camera zone config | `configs/cameras.yaml` (set via `draw_zones.py`) | P2 | ✅ Done |
+| Camera zone config | `src/configs/cameras.yaml` (set via `draw_zones.py`) | P2 | ✅ Done |
 | Seatbelt crop images | Manual collection (~300) | P2 | ❌ Optional |
 | Plate model mAP metrics | Capture from Colab training run | P2 | ❌ Still needed for report |
 | Evaluation labels (100–200 frames) | Label Studio / CVAT | P2 | ❌ For report |
@@ -187,7 +187,7 @@ No OpenAI, no Google Vision API, no AWS, no Azure — everything runs on your ma
 
 1. **A real Indian traffic video** → `data/samples/test_video.mp4`
    - Use `scripts/images_to_video.py` on helmet dataset images as a stopgap
-2. **Camera zone config** → run `python scripts/draw_zones.py --video <your_clip>` and paste output into `configs/cameras.yaml`
+2. **Camera zone config** → run `python scripts/draw_zones.py --video <your_clip>` and paste output into `src/configs/cameras.yaml`
 3. **Plate model mAP** → go back to the Colab training run, cell 5 prints metrics — screenshot for the report
 
 Seatbelt shows as `indeterminate` — correct honest fallback, not an error.

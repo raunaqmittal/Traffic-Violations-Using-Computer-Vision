@@ -28,7 +28,7 @@ def main():
     args = parser.parse_args()
 
     if args.dashboard:
-        dashboard_path = Path(__file__).parent / "dashboard" / "app.py"
+        dashboard_path = Path(__file__).parent / "src" / "dashboard" / "app.py"
         subprocess.run([sys.executable, "-m", "streamlit", "run", str(dashboard_path)], check=True)
         return
 
@@ -40,7 +40,7 @@ def main():
     if not args.video:
         parser.error("--video is required unless --dashboard is set")
 
-    from pipelines.video_pipeline import run
+    from src.pipelines.video_pipeline import run
     run(
         source=args.video,
         camera_id=args.camera,

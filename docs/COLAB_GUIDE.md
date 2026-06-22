@@ -45,6 +45,6 @@ python -m venv venv; .\venv\Scripts\activate
 pip install -r requirements.txt
 python scripts/download_models.py            # vehicle (COCO) weights
 # put the two trained .pt files in models/weights/
-# set device: "cuda" in configs/pipeline.yaml to use the GTX 1650
+# set device: "cuda" in src/configs/pipeline.yaml to use the GTX 1650
 python app.py --video data/samples/test_video.mp4 --show
 ```

@@ -1,8 +1,8 @@
-"""Tests for frame preprocessing module."""
+﻿"""Tests for frame preprocessing module."""
 
 import numpy as np
 import pytest
-from src.preprocessing.frame_processor import process_frame, _laplacian_variance
+from src.components.preprocessing.frame_processor import process_frame, _laplacian_variance
 
 
 def _make_frame(brightness: int = 120, noise: bool = False) -> np.ndarray:

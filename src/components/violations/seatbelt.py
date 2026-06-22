@@ -1,4 +1,4 @@
-"""
+﻿"""
 Seatbelt non-compliance detector.
 
 Crops the windshield ROI from a car bounding box and runs the pretrained
@@ -39,7 +39,7 @@ import numpy as np
 from PIL import Image
 
 from src.models import TrackedObject, ViolationRecord
-from src.violations.classifier import route
+from src.components.violations.classifier import route
 
 log = logging.getLogger(__name__)
 

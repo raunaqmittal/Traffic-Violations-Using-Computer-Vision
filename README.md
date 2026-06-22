@@ -48,12 +48,12 @@ python scripts/download_models.py
 
 # 5. Set up camera zones (run once per camera)
 python scripts/draw_zones.py --video data/samples/test_video.mp4
-# Copy the printed YAML into configs/cameras.yaml
+# Copy the printed YAML into src/configs/cameras.yaml
 # OR use the Camera Setup tab in the Streamlit app (see Cloud Demo below)
 
 # 6. Configure pipeline
-# Edit configs/pipeline.yaml  → set input source, model paths, device (cuda/cpu)
-# Edit configs/violations.yaml → adjust thresholds / min_confirm_frames if needed
+# Edit src/configs/pipeline.yaml  → set input source, model paths, device (cuda/cpu)
+# Edit src/configs/violations.yaml → adjust thresholds / min_confirm_frames if needed
 ```
 
 ## Running the Pipeline
@@ -130,7 +130,7 @@ pytest tests/ -v
 
 ```
 traffic_violation_system/
-├── configs/           # All tunable parameters (YAML — no hardcoded values)
+├── src/configs/           # All tunable parameters (YAML — no hardcoded values)
 │   ├── pipeline.yaml  #   device, model paths, FPS target
 │   ├── cameras.yaml   #   stop line, signal ROI, parking zones per camera
 │   └── violations.yaml#   thresholds, refresh_interval, min_confirm_frames
@@ -158,7 +158,7 @@ traffic_violation_system/
 
 Helmet and seatbelt violations require **2 separate recheck cycles** to agree before being logged. This prevents a single blurry or shadowed frame from creating a false positive in the database.
 
-- Configurable via `min_confirm_frames` in `configs/violations.yaml`
+- Configurable via `min_confirm_frames` in `src/configs/violations.yaml`
 - A clean detection (no violation found) resets the counter
 - Single-image mode (cloud demo) emits immediately (no tracker, no confirm count)
 
