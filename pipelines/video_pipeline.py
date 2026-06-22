@@ -90,6 +90,8 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
         memory = TrackMemory(
             helmet_refresh_interval=violation_cfg.get("helmet", {}).get("refresh_interval", 30),
             seatbelt_refresh_interval=violation_cfg.get("seatbelt", {}).get("refresh_interval", 60),
+            min_helmet_confirm=violation_cfg.get("helmet", {}).get("min_confirm_frames", 2),
+            min_seatbelt_confirm=violation_cfg.get("seatbelt", {}).get("min_confirm_frames", 2),
         )
         helmet_checker = HelmetChecker(
             pipeline_cfg["models"]["helmet_classifier"],

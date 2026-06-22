@@ -14,6 +14,13 @@ Recheck logic:
     frame 0 might get an uncertain "ok". By frame 5 it's in clear light
     and should be rechecked rather than waiting the full 30-frame interval.
 
+Multi-frame confirmation:
+  - helmet / seatbelt violations are only emitted after `min_confirm` separate
+    recheck cycles both agree the violation is present.
+  - A clean check (no violation detected) resets the confirm counter.
+  - This prevents a single blurry / shadowed frame from generating a false
+    positive in the database.
+
 Entries are evicted when the track disappears (synced with tracker eviction).
 """
 
@@ -30,12 +37,15 @@ class TrackState:
     helmet_confidence: float = 0.0
     last_helmet_frame: int = -1
     helmet_violation_emitted: bool = False
+    helmet_confirm_count: int = 0             # recheck cycles that saw no_helmet
+    helmet_bbox: Optional[tuple] = None       # tight head bbox for evidence annotation
     # Seatbelt
     seatbelt_checked: bool = False
     seatbelt_status: Optional[str] = None     # "no_seatbelt" | "seatbelt" | "indeterminate"
     seatbelt_confidence: float = 0.0
     last_seatbelt_frame: int = -1
     seatbelt_violation_emitted: bool = False
+    seatbelt_confirm_count: int = 0           # recheck cycles that saw no_seatbelt
     # Plate / OCR
     plate_number: Optional[str] = None
     plate_confidence: float = 0.0
@@ -47,6 +57,8 @@ class TrackMemory:
         helmet_refresh_interval: int = 30,
         seatbelt_refresh_interval: int = 60,
         low_conf_recheck_threshold: float = 0.70,
+        min_helmet_confirm: int = 2,
+        min_seatbelt_confirm: int = 2,
     ):
         self._states: dict[int, TrackState] = {}
         self._helmet_interval = helmet_refresh_interval
@@ -55,6 +67,9 @@ class TrackMemory:
         # recheck on the next frame, regardless of the interval. This catches
         # the occlusion / poor visibility scenario.
         self._low_conf = low_conf_recheck_threshold
+        # Minimum recheck cycles seeing a violation before it is emitted.
+        self.min_helmet_confirm = min_helmet_confirm
+        self.min_seatbelt_confirm = min_seatbelt_confirm
 
     def get_or_create(self, track_id: int, vehicle_type: str) -> TrackState:
         if track_id not in self._states:

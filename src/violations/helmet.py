@@ -87,6 +87,8 @@ class HelmetChecker:
             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
             violation_heads.append(((x1, y1, x2, y2), float(box.conf[0])))
 
+        min_confirm = getattr(track_memory, "min_helmet_confirm", 1) if track_memory else 1
+
         violations: list[ViolationRecord] = []
         for moto in motorcycles:
             conf, head_box = self._associate(moto.bbox, violation_heads)
@@ -100,18 +102,24 @@ class HelmetChecker:
                         state.helmet_status = "no_helmet"
                         state.helmet_confidence = conf
                         state.helmet_bbox = head_box
+                        # Increment confirm counter on each recheck cycle seeing no_helmet.
+                        state.helmet_confirm_count += 1
                     else:
                         state.helmet_status = "ok"
                         state.helmet_confidence = 0.0
                         state.helmet_bbox = None
+                        # Reset confirm counter on a clean detection — violation is no longer present.
+                        state.helmet_confirm_count = 0
 
-                # Emit violation only once per track per detection cycle.
-                if state.helmet_status == "no_helmet" and not state.helmet_violation_emitted:
+                # Emit violation only once per track, only after min_confirm cycles agree.
+                if (state.helmet_status == "no_helmet"
+                        and not state.helmet_violation_emitted
+                        and state.helmet_confirm_count >= min_confirm):
                     record = ViolationRecord(
                         violation_type="helmet",
                         confidence=state.helmet_confidence,
                         vehicle_id=moto.track_id,
-                        bbox=getattr(state, "helmet_bbox", moto.bbox) or moto.bbox,
+                        bbox=state.helmet_bbox or moto.bbox,
                         timestamp=datetime.utcnow().isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
@@ -119,6 +127,7 @@ class HelmetChecker:
                     violations.append(route(record))
                     state.helmet_violation_emitted = True
             else:
+                # No TrackMemory — emit immediately (single-frame mode, e.g. cloud demo).
                 if conf is not None:
                     record = ViolationRecord(
                         violation_type="helmet",
@@ -142,15 +151,19 @@ class HelmetChecker:
         """Return violations from cache for tracks that haven't emitted yet."""
         if track_memory is None:
             return []
+        min_confirm = getattr(track_memory, "min_helmet_confirm", 1)
         violations = []
         for moto in motorcycles:
             state = track_memory.get(moto.track_id)
-            if state and state.helmet_status == "no_helmet" and not state.helmet_violation_emitted:
+            if (state
+                    and state.helmet_status == "no_helmet"
+                    and not state.helmet_violation_emitted
+                    and state.helmet_confirm_count >= min_confirm):
                 record = ViolationRecord(
                     violation_type="helmet",
                     confidence=state.helmet_confidence,
                     vehicle_id=moto.track_id,
-                    bbox=getattr(state, "helmet_bbox", moto.bbox) or moto.bbox,
+                    bbox=state.helmet_bbox or moto.bbox,
                     timestamp=datetime.utcnow().isoformat(),
                     frame_id=frame_id,
                     camera_id=camera_id,

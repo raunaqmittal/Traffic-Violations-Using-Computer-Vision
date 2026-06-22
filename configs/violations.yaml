@@ -7,30 +7,23 @@ violations:
   helmet:
     enabled: true
     auto_approve_confidence: 0.75   # TUNED: was 0.88; model returns 0.65–0.86 so lowered to auto-flag real violations
-    # Upward expansion factor when associating a no-helmet head detection to a
-    # motorcycle box (the rider's head sits above the COCO motorcycle box).
     head_roi_fraction: 0.35
-    # Treat an improperly-worn ("invalid") helmet as a violation too.
     flag_invalid_helmet: true       # TUNED: was false; now flags cloth/scarf-covered heads too
-    # Frames between re-checks on the same motorcycle track (at target_fps=10, 30 = 3 sec).
-    refresh_interval: 30
+    refresh_interval: 30            # frames between re-checks on same motorcycle track
+    min_confirm_frames: 2           # recheck cycles that must agree before violation is emitted
 
   seatbelt:
     enabled: true
     auto_approve_confidence: 0.90
-    # Pretrained model from HuggingFace (RISEF/yolov11s-seatbelt).
-    # Downloaded automatically on first run and cached locally.
     hf_model_repo: "RISEF/yolov11s-seatbelt"
     hf_model_cache: "models/weights/seatbelt_yolov11s.pt"
     hf_model_filename: "weights/best.pt"
-    # Windshield crop region within car bbox
-    windshield_top_fraction: 0.15   # start Y = bbox_top + 15% of bbox height
-    windshield_bottom_fraction: 0.55 # end Y   = bbox_top + 55% of bbox height
-    # Minimum crop size in pixels; crops smaller than this are marked "indeterminate"
+    windshield_top_fraction: 0.15
+    windshield_bottom_fraction: 0.55
     min_crop_width: 60
     min_crop_height: 40
-    # Frames between re-checks on the same car track (at target_fps=10, 60 = 6 sec).
-    refresh_interval: 60
+    refresh_interval: 60            # frames between re-checks on same car track
+    min_confirm_frames: 2           # recheck cycles that must agree before violation is emitted
 
   triple_riding:
     enabled: true

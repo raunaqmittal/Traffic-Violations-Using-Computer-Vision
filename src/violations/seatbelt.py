@@ -146,7 +146,7 @@ class SeatbeltChecker:
         track_memory=None,
     ) -> list[ViolationRecord]:
         violations: list[ViolationRecord] = []
-        
+
         # Only check enclosed vehicles: car, truck, bus.
         # "person" is deliberately excluded — a person detected by the vehicle
         # detector on the road is a pedestrian, not a car occupant. Running the
@@ -154,12 +154,17 @@ class SeatbeltChecker:
         # false positive (they have no seatbelt to wear outside a vehicle).
         cars = [t for t in tracks if t.class_name in ("car", "truck", "bus")]
 
+        min_confirm = getattr(track_memory, "min_seatbelt_confirm", 1) if track_memory else 1
+
         for car in cars:
             # Skip if already cached and not yet due for recheck.
             if track_memory is not None and not track_memory.needs_seatbelt_check(car.track_id, frame_id):
                 state = track_memory.get(car.track_id)
-                # Emit a violation only once per track.
-                if state and state.seatbelt_status == "no_seatbelt" and not state.seatbelt_violation_emitted:
+                # Emit a violation only once per track, only after min_confirm cycles agree.
+                if (state
+                        and state.seatbelt_status == "no_seatbelt"
+                        and not state.seatbelt_violation_emitted
+                        and state.seatbelt_confirm_count >= min_confirm):
                     record = ViolationRecord(
                         violation_type="seatbelt",
                         confidence=state.seatbelt_confidence,
@@ -195,19 +200,41 @@ class SeatbeltChecker:
                 state.seatbelt_confidence = confidence
                 state.last_seatbelt_frame = frame_id
 
-            if label == "no_seatbelt":
-                record = ViolationRecord(
-                    violation_type="seatbelt",
-                    confidence=confidence,
-                    vehicle_id=car.track_id,
-                    bbox=car.bbox,
-                    timestamp=datetime.utcnow().isoformat(),
-                    frame_id=frame_id,
-                    camera_id=camera_id,
-                )
-                violations.append(route(record))
-                if track_memory is not None:
+                if label == "no_seatbelt":
+                    # Increment confirm counter on each recheck cycle seeing no_seatbelt.
+                    state.seatbelt_confirm_count += 1
+                else:
+                    # Reset confirm counter when a clean (seatbelt visible) check is made.
+                    state.seatbelt_confirm_count = 0
+
+                # Emit only after enough confirm cycles.
+                if (label == "no_seatbelt"
+                        and not state.seatbelt_violation_emitted
+                        and state.seatbelt_confirm_count >= min_confirm):
+                    record = ViolationRecord(
+                        violation_type="seatbelt",
+                        confidence=confidence,
+                        vehicle_id=car.track_id,
+                        bbox=car.bbox,
+                        timestamp=datetime.utcnow().isoformat(),
+                        frame_id=frame_id,
+                        camera_id=camera_id,
+                    )
+                    violations.append(route(record))
                     state.seatbelt_violation_emitted = True
+            else:
+                # No TrackMemory — emit immediately (single-frame mode, e.g. cloud demo).
+                if label == "no_seatbelt":
+                    record = ViolationRecord(
+                        violation_type="seatbelt",
+                        confidence=confidence,
+                        vehicle_id=car.track_id,
+                        bbox=car.bbox,
+                        timestamp=datetime.utcnow().isoformat(),
+                        frame_id=frame_id,
+                        camera_id=camera_id,
+                    )
+                    violations.append(route(record))
         return violations
 
     # ------------------------------------------------------------------
