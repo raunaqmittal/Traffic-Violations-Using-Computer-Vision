@@ -118,30 +118,29 @@ traffic project/                              ← repo root
 │   └── violations.yaml                       ← thresholds, refresh_interval, min_confirm_frames per violation
 │
 ├── src/
-│   ├── config.py                             ← load_pipeline(), load_cameras(), load_violations(), load_tracker_config()
-│   ├── models.py                             ← Detection, TrackedObject, ViolationRecord dataclasses
-│   ├── preprocessing/
-│   │   └── frame_processor.py               ← process_frame() → (frame, FrameQuality)
-│   ├── detection/
-│   │   ├── vehicle_detector.py              ← VehicleDetector (YOLO11 wrapper, class whitelist)
-│   │   └── plate_detector.py               ← PlateDetector + crop-coord translation
-│   ├── tracking/
-│   │   ├── tracker.py                      ← Tracker (self-contained IoU — NOT ByteTrack/BYTETracker)
-│   │   └── track_memory.py                 ← TrackMemory: caches ML results, confirm counters, helmet_bbox
-│   ├── violations/
-│   │   ├── classifier.py                   ← route(record) → sets status from per-violation threshold
-│   │   ├── signal_utils.py                 ← detect_signal_state() → "red"|"green"|"unknown"
-│   │   ├── triple_riding.py               ← containment rule (min_overlap_ratio, not IoU)
-│   │   ├── wrong_side.py
-│   │   ├── stop_line.py
-│   │   ├── red_light.py
-│   │   ├── parking.py                     ← key in violations.yaml: illegal_parking
-│   │   ├── helmet.py                      ← HelmetChecker: full-frame detect + upward-bbox association + confirm counter
-│   │   └── seatbelt.py                    ← SeatbeltChecker: YOLO11s classify, car/truck/bus only, confirm counter
-│   ├── ocr/
-│   │   └── plate_reader.py               ← PlateReader (EasyOCR, NOT PaddleOCR)
-│   ├── evidence/
-│   │   └── generator.py                  ← EvidenceGenerator.save() → annotated JPEG + JSON
+│   ├── components/
+│   │   ├── preprocessing/
+│   │   │   └── frame_processor.py               ← process_frame() → (frame, FrameQuality)
+│   │   ├── detection/
+│   │   │   ├── vehicle_detector.py              ← VehicleDetector (YOLO11 wrapper, class whitelist)
+│   │   │   └── plate_detector.py               ← PlateDetector + crop-coord translation
+│   │   ├── tracking/
+│   │   │   ├── tracker.py                      ← Tracker (self-contained IoU — NOT ByteTrack/BYTETracker)
+│   │   │   └── track_memory.py                 ← TrackMemory: caches ML results, confirm counters, helmet_bbox
+│   │   ├── violations/
+│   │   │   ├── classifier.py                   ← route(record) → sets status from per-violation threshold
+│   │   │   ├── signal_utils.py                 ← detect_signal_state() → "red"|"green"|"unknown"
+│   │   │   ├── triple_riding.py               ← containment rule (min_overlap_ratio, not IoU)
+│   │   │   ├── wrong_side.py
+│   │   │   ├── stop_line.py
+│   │   │   ├── red_light.py
+│   │   │   ├── parking.py                     ← key in violations.yaml: illegal_parking
+│   │   │   ├── helmet.py                      ← HelmetChecker: full-frame detect + upward-bbox association + confirm counter
+│   │   │   └── seatbelt.py                    ← SeatbeltChecker: YOLO11s classify, car/truck/bus only, confirm counter
+│   │   ├── ocr/
+│   │   │   └── plate_reader.py                 ← PlateReader (EasyOCR wrapper, handles text+conf)
+│   │   └── evidence/
+│   │       └── generator.py                    ← EvidenceGenerator (annotated image + json sidecar)
 │   ├── database/
 │   │   ├── schema.py                     ← SQLAlchemy table + init_db()
 │   │   └── repository.py               ← insert_violation, query_violations, count_by_*, export_csv
