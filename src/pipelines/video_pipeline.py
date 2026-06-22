@@ -210,6 +210,7 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
         all_violations += parking_mod.check(
             tracks, frame_idx,
             no_parking_zones=no_parking_zones,
+            fps=video_fps,
             dwell_time_seconds=park_cfg.get("dwell_time_seconds", 180),
             stationary_pixel_threshold=park_cfg.get("stationary_pixel_threshold", 15),
             camera_id=camera_id,

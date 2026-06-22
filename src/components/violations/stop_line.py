@@ -1,4 +1,4 @@
-﻿"""
+"""
 Stop-line violation detector.
 Rule: vehicle centroid crosses the virtual stop line when signal state is "red" or "unknown".
 
@@ -8,7 +8,7 @@ by at least crossing_margin_px pixels.
 """
 
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
 from src.components.violations.signal_utils import detect_signal_state
@@ -54,7 +54,7 @@ def check(
                 confidence=0.93 if signal == "red" else 0.75,
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 frame_id=frame_id,
                 camera_id=camera_id,
             )

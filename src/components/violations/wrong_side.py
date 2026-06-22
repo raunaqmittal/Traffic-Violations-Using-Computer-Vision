@@ -1,4 +1,4 @@
-﻿"""
+"""
 Wrong-side driving violation detector.
 Rule: compute displacement vector of the track centroid over recent N frames.
 If the direction deviates from the camera's allowed_direction_deg by more than
@@ -6,7 +6,7 @@ the tolerance for consecutive_wrong_frames frames, flag the vehicle.
 """
 
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
 
@@ -42,7 +42,7 @@ def check(
                 confidence=min(0.70 + 0.03 * wrong_count, 1.0),
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 frame_id=frame_id,
                 camera_id=camera_id,
             )
@@ -61,7 +61,7 @@ def _count_consecutive_wrong(
         dx = history[i][0] - history[i - 1][0]
         dy = history[i][1] - history[i - 1][1]
         if abs(dx) < 2 and abs(dy) < 2:
-            # Stationary — skip
+            # Stationary � skip
             continue
         # Image coords: y increases downward, so flip dy for standard angles
         angle = math.degrees(math.atan2(-dy, dx)) % 360

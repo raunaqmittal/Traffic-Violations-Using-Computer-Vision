@@ -1,19 +1,18 @@
-﻿"""
+"""
 Illegal parking violation detector.
 Rule: vehicle centroid inside a no-parking polygon for >= dwell_time_seconds seconds.
 
 Dwell time is tracked per track ID using timestamps of first entry into the zone.
 """
 
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
 
 
-# dwell_tracker[track_id] = (zone_name, entry_timestamp)
-_dwell_tracker: dict[int, tuple[str, float]] = {}
+# dwell_tracker[track_id] = (zone_name, entry_frame)
+_dwell_tracker: dict[int, tuple[str, int]] = {}
 _already_flagged: set[int] = set()
 
 
@@ -21,12 +20,15 @@ def check(
     tracks: list[TrackedObject],
     frame_id: int,
     no_parking_zones: list[dict],
+    fps: float = 25.0,
     dwell_time_seconds: float = 180.0,
     stationary_pixel_threshold: int = 15,
     camera_id: str = "cam_001",
 ) -> list[ViolationRecord]:
     violations: list[ViolationRecord] = []
-    now = time.time()
+    
+    # Calculate how many frames correspond to the desired dwell time
+    dwell_frames = int(dwell_time_seconds * fps)
 
     vehicle_classes = {"car", "truck", "bus", "auto-rickshaw", "three-wheeler"}
 
@@ -56,18 +58,18 @@ def check(
             continue
 
         if track.track_id not in _dwell_tracker:
-            _dwell_tracker[track.track_id] = (zone_match["name"], now)
+            _dwell_tracker[track.track_id] = (zone_match["name"], frame_id)
             continue
 
-        zone_name, entry_time = _dwell_tracker[track.track_id]
-        if now - entry_time >= dwell_time_seconds:
+        zone_name, entry_frame = _dwell_tracker[track.track_id]
+        if frame_id - entry_frame >= dwell_frames:
             _already_flagged.add(track.track_id)
             record = ViolationRecord(
                 violation_type="illegal_parking",
                 confidence=1.0,
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 frame_id=frame_id,
                 camera_id=camera_id,
             )

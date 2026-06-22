@@ -1,4 +1,4 @@
-﻿"""
+"""
 Seatbelt non-compliance detector.
 
 Crops the windshield ROI from a car bounding box and runs the pretrained
@@ -16,7 +16,7 @@ Vehicle filtering:
   Only "car", "truck", and "bus" are checked. "person" is explicitly excluded
   because a pedestrian detected on the road is NOT inside a vehicle. Checking
   seatbelt compliance on a person standing outside a car would always fire a
-  false positive — you cannot wear a seatbelt while standing on the road.
+  false positive � you cannot wear a seatbelt while standing on the road.
   The crop ROI (15%-55% of the bounding box height) targets the windshield/
   torso region of the *vehicle*, not of a standalone person.
 
@@ -32,7 +32,7 @@ DB with one indeterminate record per car per frame.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -80,7 +80,7 @@ def _download_hf_model(cache_path: str) -> str | None:
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
         log.info(
-            "Downloading seatbelt model from HuggingFace (%s / %s) → %s",
+            "Downloading seatbelt model from HuggingFace (%s / %s) ? %s",
             _HF_REPO_ID, _HF_FILENAME, dest,
         )
         tmp_path = hf_hub_download(
@@ -104,7 +104,7 @@ def _load_yolo_model(model_path: str, device: str):
         from ultralytics import YOLO
         
         model = YOLO(model_path, task="classify")
-        # Warm up device assignment — ultralytics handles device internally
+        # Warm up device assignment � ultralytics handles device internally
         # via predict() kwargs; store device for later use.
         model._seatbelt_device = device
         log.info("Seatbelt YOLO model loaded from %s (device=%s)", model_path, device)
@@ -148,7 +148,7 @@ class SeatbeltChecker:
         violations: list[ViolationRecord] = []
 
         # Only check enclosed vehicles: car, truck, bus.
-        # "person" is deliberately excluded — a person detected by the vehicle
+        # "person" is deliberately excluded � a person detected by the vehicle
         # detector on the road is a pedestrian, not a car occupant. Running the
         # seatbelt model on a pedestrian's torso crop would always produce a
         # false positive (they have no seatbelt to wear outside a vehicle).
@@ -170,7 +170,7 @@ class SeatbeltChecker:
                         confidence=state.seatbelt_confidence,
                         vehicle_id=car.track_id,
                         bbox=car.bbox,
-                        timestamp=datetime.utcnow().isoformat(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
                     )
@@ -216,21 +216,21 @@ class SeatbeltChecker:
                         confidence=confidence,
                         vehicle_id=car.track_id,
                         bbox=car.bbox,
-                        timestamp=datetime.utcnow().isoformat(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
                     )
                     violations.append(route(record))
                     state.seatbelt_violation_emitted = True
             else:
-                # No TrackMemory — emit immediately (single-frame mode, e.g. cloud demo).
+                # No TrackMemory � emit immediately (single-frame mode, e.g. cloud demo).
                 if label == "no_seatbelt":
                     record = ViolationRecord(
                         violation_type="seatbelt",
                         confidence=confidence,
                         vehicle_id=car.track_id,
                         bbox=car.bbox,
-                        timestamp=datetime.utcnow().isoformat(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
                     )
@@ -244,16 +244,16 @@ class SeatbeltChecker:
     def _init_model(self, model_path: str | None):
         """
         Resolve model path:
-        - If model_path is given and the file exists → load directly.
-        - If model_path is given but file is missing → treat as the HF cache
+        - If model_path is given and the file exists ? load directly.
+        - If model_path is given but file is missing ? treat as the HF cache
           destination and auto-download.
-        - If model_path is None → use default HF cache path and auto-download.
+        - If model_path is None ? use default HF cache path and auto-download.
         """
         cache_path = model_path or os.path.join("models", "weights", "seatbelt_yolov11s.pt")
         resolved = _download_hf_model(cache_path)
         if resolved is None:
             log.warning(
-                "Seatbelt model unavailable — all results will be 'indeterminate'."
+                "Seatbelt model unavailable � all results will be 'indeterminate'."
             )
             return None
         return _load_yolo_model(resolved, self.device)
@@ -274,7 +274,7 @@ class SeatbeltChecker:
         Returns (confidence, internal_label) where internal_label is one of
         "seatbelt" | "no_seatbelt".
         """
-        # Convert BGR → RGB for YOLO
+        # Convert BGR ? RGB for YOLO
         pil_img = Image.fromarray(crop[:, :, ::-1])
 
         results = self.model.predict(
@@ -302,7 +302,7 @@ class SeatbeltChecker:
             confidence=0.0,
             vehicle_id=car.track_id,
             bbox=car.bbox,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             frame_id=frame_id,
             status="indeterminate",
             camera_id=camera_id,

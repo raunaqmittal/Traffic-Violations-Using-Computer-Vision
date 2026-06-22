@@ -1,4 +1,4 @@
-﻿"""
+"""
 Triple riding violation detector.
 Rule: count persons whose bounding box sits substantially inside a motorcycle
 bounding box. If count >= 3, flag the motorcycle track as a triple-riding
@@ -10,7 +10,7 @@ on the bike scores a low IoU (~0.1) yet a high containment (~1.0). IoU would
 miss real triple-riding cases; containment captures them correctly.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
 
@@ -34,7 +34,7 @@ def check(
                 confidence=1.0,
                 vehicle_id=moto.track_id,
                 bbox=moto.bbox,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 frame_id=frame_id,
                 camera_id=camera_id,
             )

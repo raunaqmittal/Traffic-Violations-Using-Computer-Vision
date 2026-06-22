@@ -1,13 +1,13 @@
-﻿"""
+"""
 Red-light violation detector.
 Rule: signal is "red" AND vehicle centroid is past the stop line AND vehicle is moving.
 
-This is a stricter version of stop_line.py — it additionally confirms the signal
+This is a stricter version of stop_line.py � it additionally confirms the signal
 is actively red (not just unknown) and that the vehicle is in motion.
 """
 
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
 from src.components.violations.signal_utils import detect_signal_state
@@ -56,7 +56,7 @@ def check(
                 confidence=0.95,
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 frame_id=frame_id,
                 camera_id=camera_id,
             )

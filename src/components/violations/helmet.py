@@ -1,4 +1,4 @@
-ï»¿"""
+"""
 Helmet non-compliance detector.
 
 The helmet model is a full-scene detector trained to localize riders and their
@@ -17,7 +17,7 @@ so a bike that was checked 2 frames ago does not trigger another YOLO call.
 """
 
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from ultralytics import YOLO
 from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
@@ -66,7 +66,7 @@ class HelmetChecker:
         # Run the full-frame helmet model once.
         results = self.model.predict(source=frame, conf=self.conf, device=self.device, verbose=False)
         if not results or not results[0].boxes:
-            # No helmet detections â€” mark all needing-check motorcycles as "ok".
+            # No helmet detections — mark all needing-check motorcycles as "ok".
             if track_memory is not None:
                 for m in needs_check:
                     state = track_memory.get_or_create(m.track_id, "motorcycle")
@@ -108,7 +108,7 @@ class HelmetChecker:
                         state.helmet_status = "ok"
                         state.helmet_confidence = 0.0
                         state.helmet_bbox = None
-                        # Reset confirm counter on a clean detection â€” violation is no longer present.
+                        # Reset confirm counter on a clean detection — violation is no longer present.
                         state.helmet_confirm_count = 0
 
                 # Emit violation only once per track, only after min_confirm cycles agree.
@@ -120,21 +120,21 @@ class HelmetChecker:
                         confidence=state.helmet_confidence,
                         vehicle_id=moto.track_id,
                         bbox=state.helmet_bbox or moto.bbox,
-                        timestamp=datetime.utcnow().isoformat(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
                     )
                     violations.append(route(record))
                     state.helmet_violation_emitted = True
             else:
-                # No TrackMemory â€” emit immediately (single-frame mode, e.g. cloud demo).
+                # No TrackMemory — emit immediately (single-frame mode, e.g. cloud demo).
                 if conf is not None:
                     record = ViolationRecord(
                         violation_type="helmet",
                         confidence=conf,
                         vehicle_id=moto.track_id,
                         bbox=head_box or moto.bbox,
-                        timestamp=datetime.utcnow().isoformat(),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
                         frame_id=frame_id,
                         camera_id=camera_id,
                     )
@@ -164,7 +164,7 @@ class HelmetChecker:
                     confidence=state.helmet_confidence,
                     vehicle_id=moto.track_id,
                     bbox=state.helmet_bbox or moto.bbox,
-                    timestamp=datetime.utcnow().isoformat(),
+                    timestamp=datetime.now(timezone.utc).isoformat(),
                     frame_id=frame_id,
                     camera_id=camera_id,
                 )
