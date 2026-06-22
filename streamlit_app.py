@@ -637,8 +637,6 @@ def tab_how_it_works():
 
     st.divider()
     st.subheader("The 7 Violations")
-
-    violations_info = [
         ("🪖 Helmet Non-Compliance", "ML Model", "helmet_yolov8.pt",
          "A fine-tuned YOLO detector scans the full frame for bare heads. "
          "Head detections are spatially associated to motorcycle bounding boxes "
@@ -680,34 +678,66 @@ def tab_how_it_works():
 # ─────────────────────────────────────────────
 def tab_sample(models):
     st.header("🖼️ Try a Sample")
-    sample_dir   = ROOT / "data" / "samples"
-    sample_files = sorted([
-        p for p in sample_dir.glob("*")
-        if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".mp4"}
-    ]) if sample_dir.is_dir() else []
+    st.markdown(
+        "This pre-loaded scene was chosen to demonstrate **every violation type** the system can detect. "
+        "Zone boundaries (stop line and no-parking area) are pre-configured for you — just click **Run detection**."
+    )
 
-    if not sample_files:
-        st.info("No sample files found in `data/samples/`. "
-                "Add a traffic image or video there to use this tab.")
-        return
+    sample_dir  = ROOT / "data" / "samples"
+    scene_path  = sample_dir / "sample_scene.jpg"
 
-    pick   = st.selectbox("Choose a sample", [p.name for p in sample_files])
-    chosen = sample_dir / pick
-    if st.button("▶️ Run detection"):
-        zones  = st.session_state.get("zones", {})
-        suffix = chosen.suffix.lower()
-        if suffix in {".jpg", ".jpeg", ".png"}:
-            frame = cv2.imread(str(chosen))
-            with st.spinner("Analysing…"):
-                dets, violations, plates = run_visual_detection(frame, models)
-            annotated = _annotate(frame, dets, violations, plates, zones=zones)
-            left, right = st.columns(2)
-            left.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True)
-            right.subheader("Results")
-            _show_results(dets, violations, plates, right)
-        elif suffix in {".mp4", ".avi", ".mov"}:
-            with st.spinner("Analysing video…"):
-                _process_video(str(chosen), models, zones)
+    if not scene_path.exists():
+        # Fallback: pick any image in the folder
+        sample_files = sorted([
+            p for p in sample_dir.glob("*")
+            if p.suffix.lower() in {".jpg", ".jpeg", ".png"}
+        ]) if sample_dir.is_dir() else []
+        if not sample_files:
+            st.info("No sample files found in `data/samples/`.")
+            return
+        scene_path = sample_files[0]
+
+    # Show legend
+    with st.expander("📋 What to look for in this scene", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(
+                "- 🪖 **Helmet violation** — rider with no helmet (cyan box)\n"
+                "- 🚗 **Seatbelt violation** — driver without seatbelt strap (blue box)\n"
+                "- 🏍️ **Triple riding** — 3+ people on a motorcycle (orange box)\n"
+            )
+        with col2:
+            st.markdown(
+                "- 🛑 **Stop-line** — vehicle past the green line while signal is red\n"
+                "- 🅿️ **Illegal parking** — vehicle inside the red NO PARK polygon\n"
+                "- 🔢 **License plate** — plate text read by EasyOCR (yellow box)\n"
+            )
+
+    st.image(str(scene_path), caption="Sample traffic scene (pre-configured zones active)", use_container_width=True)
+
+    # Pre-configured zones matched to the sample image geometry
+    SAMPLE_ZONES = {
+        "stop_line":    [[50, 420], [750, 420]],
+        "signal_roi":   [680, 60, 80, 100],
+        "parking_zones": [
+            {"name": "No Parking Zone", "polygon": [[580, 340], [760, 340], [760, 500], [580, 500]]}
+        ],
+    }
+
+    if st.button("▶️ Run detection on sample", type="primary", use_container_width=True):
+        frame = cv2.imread(str(scene_path))
+        if frame is None:
+            st.error("Could not read the sample image.")
+            return
+        with st.spinner("Running models…"):
+            dets, violations, plates = run_visual_detection(frame, models)
+        annotated = _annotate(frame, dets, violations, plates, zones=SAMPLE_ZONES)
+        left, right = st.columns([3, 2])
+        left.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), use_container_width=True)
+        right.subheader("Results")
+        _show_results(dets, violations, plates, right)
+        if not violations:
+            right.info("No violations detected — try uploading your own image in the **Detect** tab!")
 
 
 # ─────────────────────────────────────────────
