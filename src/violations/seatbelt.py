@@ -12,6 +12,14 @@ On first run the weights (~19 MB) are downloaded via huggingface_hub and
 cached at the path configured in pipeline.yaml (models.seatbelt_classifier).
 Subsequent runs are fully offline.
 
+Vehicle filtering:
+  Only "car", "truck", and "bus" are checked. "person" is explicitly excluded
+  because a pedestrian detected on the road is NOT inside a vehicle. Checking
+  seatbelt compliance on a person standing outside a car would always fire a
+  false positive — you cannot wear a seatbelt while standing on the road.
+  The crop ROI (15%-55% of the bounding box height) targets the windshield/
+  torso region of the *vehicle*, not of a standalone person.
+
 If the crop is too small, or the download fails, the record is marked
 "indeterminate" and routed to the human review queue.
 
@@ -20,6 +28,7 @@ already classified does not get re-checked until SEATBELT_REFRESH_INTERVAL
 frames later. An indeterminate result is also cached so we don't flood the
 DB with one indeterminate record per car per frame.
 """
+
 
 import logging
 import os
@@ -138,9 +147,12 @@ class SeatbeltChecker:
     ) -> list[ViolationRecord]:
         violations: list[ViolationRecord] = []
         
-        # Include 'person' tracks because tight camera angles might only detect the driver.
-        # Coincidentally, the 15%-55% vertical crop of a seated person perfectly captures their chest/torso!
-        cars = [t for t in tracks if t.class_name in ("car", "truck", "bus", "person")]
+        # Only check enclosed vehicles: car, truck, bus.
+        # "person" is deliberately excluded — a person detected by the vehicle
+        # detector on the road is a pedestrian, not a car occupant. Running the
+        # seatbelt model on a pedestrian's torso crop would always produce a
+        # false positive (they have no seatbelt to wear outside a vehicle).
+        cars = [t for t in tracks if t.class_name in ("car", "truck", "bus")]
 
         for car in cars:
             # Skip if already cached and not yet due for recheck.
