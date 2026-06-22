@@ -13,20 +13,20 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 
 ---
 
-## Current Status (2026-06-21)
+## Current Status (2026-06-23)
 
 **Working end-to-end on GPU.** Full pipeline verified on a real traffic video on RTX 3050 Ti (Lenovo Legion Slim 7i, i7 12th Gen, 16GB DDR5). Violations firing: `illegal_parking` and `stop_line` confirmed. Pipeline is now optimized with `TrackMemory` for heavy ML caching. 36/36 unit tests pass.
 
 | Component | State |
 |-----------|-------|
-| Environment | Python **3.11.9** venv at `venv/`. System Python is 3.13 — **do NOT use it** (torch/paddle have no 3.13 wheels). torch 2.5.1+cu121, CUDA working on RTX 3050 Ti. |
+| Environment | Python **3.11.9** venv at `venv/`. System Python is 3.13 — **do NOT use it** (torch has no 3.13 wheels). torch 2.5.1+cu121, CUDA working on RTX 3050 Ti. |
 | Vehicle/person model | `models/weights/yolo11s.pt` — COCO pretrained ✅ |
 | Helmet model | `models/weights/helmet_yolov8.pt` — **TRAINED on Colab T4** ✅ |
 | Plate model | `models/weights/plate_yolov8.pt` — **TRAINED on Colab T4** ✅ |
+| Seatbelt model | `models/weights/seatbelt_yolov11s.pt` — **RISEF/yolov11s-seatbelt from HuggingFace** ✅ auto-downloaded |
 | OCR | EasyOCR (GPU via torch) ✅ |
-| Seatbelt CNN | Not trained → correctly returns `indeterminate` |
 | Docker | `Dockerfile` + `docker-compose.yml` present — CPU image, GPU note inside |
-| Cloud Demo | `streamlit_app.py` — CPU-friendly interactive UI for Hugging Face / Streamlit Cloud |
+| Cloud Demo | `streamlit_app.py` — 4-tab interactive UI (Detect, Camera Setup, How It Works, Try Sample) |
 | Tests | 36/36 passing (`pytest tests/ -q`) |
 | Git | `main` branch on `github.com/raunaqmittal/Traffic-Violations-Using-Computer-Vision` |
 
@@ -47,7 +47,7 @@ A real-world deployable prototype for **Automated Photo Identification and Class
 | Violation | Detection Method |
 |-----------|-----------------|
 | Helmet non-compliance | Full-frame helmet YOLO → `rider_no_helmet` heads associated to motorcycle tracks via upward-expanded bbox containment. NOT a head-crop (COCO motorcycle boxes exclude the rider's head). |
-| Seatbelt non-compliance | Binary CNN on windshield crop of car bbox; marks `indeterminate` if crop too small or model untrained |
+| Seatbelt non-compliance | YOLO11s classifier (`seatbelt_yolov11s.pt`) on windshield crop of **car/truck/bus bbox only** — pedestrians explicitly excluded. Marks `indeterminate` if crop too small. Requires 2 confirm cycles before violation is emitted. |
 | Triple riding | Rule: count persons whose bbox is ≥ 50% **contained** (not IoU) in motorcycle bbox; ≥ 3 → violation |
 | Wrong-side driving | Rule: centroid direction vector vs `allowed_direction_deg` for N consecutive frames |
 | Stop-line violation | Rule: vehicle centroid past virtual line when signal is red/unknown |
@@ -69,11 +69,12 @@ Vehicle & Road User Detection  (YOLO11s, COCO — car, truck, bus, motorcycle, p
       ↓
 IoU Tracker  (self-contained greedy IoU — stable IDs + 60-frame centroid history)
       ↓
-TrackMemory Manager (caches ML inferences per track ID, rechecks on schedule or low confidence)
+TrackMemory Manager (caches ML inferences per track ID; rechecks on schedule or low confidence;
+                     multi-frame confirmation before violation is emitted)
       ↓
 Violation Detection Engine
-  ├── Helmet         → full-frame helmet YOLO (cached per bike) + associate no-helmet heads
-  ├── Seatbelt       → Binary CNN (cached per car, indeterminate fallback)
+  ├── Helmet         → full-frame helmet YOLO (cached per bike, min 2 confirm cycles)
+  ├── Seatbelt       → YOLO11s seatbelt classifier (car/truck/bus only, min 2 confirm cycles)
   ├── Triple Riding  → person-containment rule (intersection / person-area)
   ├── Wrong-side     → direction vector rule on centroid history
   ├── Stop-line      → virtual line + signal state (HSV)
@@ -100,10 +101,11 @@ Streamlit Dashboard  (KPIs, charts, searchable table, image viewer, CSV export)
 traffic project/                              ← repo root
 │
 ├── app.py                                    ← CLI: --video, --camera, --dry-run, --show, --dashboard
-├── streamlit_app.py                          ← Cloud-friendly interactive image demo (HF Spaces / Streamlit Cloud)
+├── streamlit_app.py                          ← 4-tab cloud demo (Detect, Camera Setup, How It Works, Sample)
 ├── requirements.txt                          ← Runtime deps only (easyocr, torch, streamlit, etc.)
 ├── requirements-train.txt                    ← Training deps (roboflow, kaggle)
-├── packages.txt                              ← apt deps (libgl1, ffmpeg) for cloud deployment
+├── packages.txt                              ← apt deps for cloud deployment (libglib2.0-0t64, libgl1)
+├── runtime.txt                               ← Pins Python 3.11 on Streamlit Cloud
 ├── README.md
 ├── .gitignore                                ← comprehensive: .pt/.pth/.mp4/DB/venv/cache
 ├── Dockerfile                                ← python:3.11-slim CPU image; GPU note inside
@@ -113,7 +115,7 @@ traffic project/                              ← repo root
 ├── configs/
 │   ├── pipeline.yaml                         ← device: cuda; vehicle_detector: yolo11s.pt
 │   ├── cameras.yaml                          ← stop_line, signal_roi, no_parking_zones per camera
-│   └── violations.yaml                       ← illegal_parking key; min_person_overlap_ratio: 0.5
+│   └── violations.yaml                       ← thresholds, refresh_interval, min_confirm_frames per violation
 │
 ├── src/
 │   ├── config.py                             ← load_pipeline(), load_cameras(), load_violations(), load_tracker_config()
@@ -125,7 +127,7 @@ traffic project/                              ← repo root
 │   │   └── plate_detector.py               ← PlateDetector + crop-coord translation
 │   ├── tracking/
 │   │   ├── tracker.py                      ← Tracker (self-contained IoU — NOT ByteTrack/BYTETracker)
-│   │   └── track_memory.py                 ← TrackMemory (caches expensive ML results per track ID)
+│   │   └── track_memory.py                 ← TrackMemory: caches ML results, confirm counters, helmet_bbox
 │   ├── violations/
 │   │   ├── classifier.py                   ← route(record) → sets status from per-violation threshold
 │   │   ├── signal_utils.py                 ← detect_signal_state() → "red"|"green"|"unknown"
@@ -134,8 +136,8 @@ traffic project/                              ← repo root
 │   │   ├── stop_line.py
 │   │   ├── red_light.py
 │   │   ├── parking.py                     ← key in violations.yaml: illegal_parking
-│   │   ├── helmet.py                      ← HelmetChecker: full-frame detect + upward-bbox association
-│   │   └── seatbelt.py                    ← SeatbeltChecker + _SeatbeltCNN (indeterminate until trained)
+│   │   ├── helmet.py                      ← HelmetChecker: full-frame detect + upward-bbox association + confirm counter
+│   │   └── seatbelt.py                    ← SeatbeltChecker: YOLO11s classify, car/truck/bus only, confirm counter
 │   ├── ocr/
 │   │   └── plate_reader.py               ← PlateReader (EasyOCR, NOT PaddleOCR)
 │   ├── evidence/
@@ -149,7 +151,7 @@ traffic project/                              ← repo root
 │       └── metrics.py                   ← classification_metrics, ocr_accuracy, average_precision, FPSTimer
 │
 ├── pipelines/
-│   └── video_pipeline.py               ← run() — wires all modules; lazy ML imports for --dry-run
+│   └── video_pipeline.py               ← run() — wires all modules; passes min_confirm_frames to TrackMemory
 │
 ├── dashboard/
 │   └── app.py                          ← Streamlit: KPIs, bar chart, trend line, table, image viewer, CSV
@@ -161,11 +163,11 @@ traffic project/                              ← repo root
 │   └── draw_zones.py                  ← interactive OpenCV zone editor → prints cameras.yaml YAML
 │
 ├── models/
-│   └── weights/                       ← yolo11s.pt, helmet_yolov8.pt, plate_yolov8.pt (in .gitignore)
+│   └── weights/                       ← yolo11s.pt, helmet_yolov8.pt, plate_yolov8.pt, seatbelt_yolov11s.pt (in .gitignore)
 │
 ├── data/
 │   ├── raw/                           ← gitignored
-│   ├── samples/                       ← test clips (*.mp4 gitignored) + bus.jpg (for demo)
+│   ├── samples/                       ← test clips (*.mp4 gitignored) + reference images
 │   └── seatbelt_crops/
 │       ├── seatbelt/
 │       └── no_seatbelt/
@@ -215,6 +217,18 @@ class ViolationRecord:
     is_blurry: bool; camera_id: str
 ```
 
+### TrackState (key fields added recently)
+
+```python
+@dataclass
+class TrackState:
+    # Helmet
+    helmet_confirm_count: int = 0    # recheck cycles seeing no_helmet (emit after >= min_helmet_confirm)
+    helmet_bbox: Optional[tuple] = None  # tight head bbox (not the motorcycle bbox)
+    # Seatbelt
+    seatbelt_confirm_count: int = 0  # recheck cycles seeing no_seatbelt
+```
+
 ---
 
 ## Critical Config Notes
@@ -222,11 +236,14 @@ class ViolationRecord:
 | File | Critical key | Value |
 |------|-------------|-------|
 | `pipeline.yaml` | `models.vehicle_detector` | `models/weights/yolo11s.pt` (YOLO11, not v8) |
+| `pipeline.yaml` | `models.seatbelt_classifier` | `models/weights/seatbelt_yolov11s.pt` (auto-downloaded HuggingFace) |
 | `pipeline.yaml` | `inference.device` | `cuda` (RTX 3050 Ti confirmed working) |
 | `violations.yaml` | parking section key | `illegal_parking` (NOT `parking`) |
 | `violations.yaml` | triple riding key | `min_person_overlap_ratio` (NOT `min_person_overlap_iou`) |
-| `violations.yaml` | `helmet.flag_invalid_helmet` | `false` by default; set `true` to also flag improperly-worn helmets |
-| `cameras.yaml` | All geometry | Set with `python scripts/draw_zones.py --video <clip>` |
+| `violations.yaml` | `helmet.min_confirm_frames` | `2` — must see no_helmet in 2 separate recheck cycles |
+| `violations.yaml` | `seatbelt.min_confirm_frames` | `2` — same gating for seatbelt |
+| `violations.yaml` | `helmet.flag_invalid_helmet` | `true` — also flags improperly-worn helmets |
+| `cameras.yaml` | All geometry | Set with `python scripts/draw_zones.py --video <clip>` OR via Camera Setup tab in streamlit_app.py |
 
 ---
 
@@ -243,6 +260,11 @@ class ViolationRecord:
 | violations.yaml config | `parking` key → `illegal_parking`; `min_person_overlap_iou` → `min_person_overlap_ratio` |
 | Expensive ML ran every frame | Implemented `TrackMemory` for helmet/seatbelt/plate caching, synced to tracker |
 | DB flooded with `indeterminate` | `TrackMemory` ensures seatbelt `indeterminate` is emitted only once per car |
+| Seatbelt false positives on pedestrians | `SeatbeltChecker` now filters to `car/truck/bus` only — `person` explicitly excluded |
+| Single blurry frame → false DB violation | `min_confirm_frames=2` in TrackMemory: helmet/seatbelt violations require 2 recheck cycles to agree |
+| `helmet_bbox` was a dynamic attribute | Added properly to `TrackState` dataclass |
+| `debug.jpg` written to repo root | Friend's debug line removed from `streamlit_app.py` |
+| Streamlit app only had 2 tabs (upload + sample) | Upgraded to 4 tabs: Detect, Camera Setup, How It Works, Try Sample |
 
 ---
 
@@ -267,6 +289,9 @@ python app.py --video data\samples\test_video.mp4 --dry-run
 # Streamlit dashboard on http://localhost:8501
 python app.py --dashboard
 
+# Cloud demo (4-tab interactive app)
+streamlit run streamlit_app.py
+
 # Tests
 python -m pytest tests\ -q
 ```
@@ -284,7 +309,7 @@ docker compose run --rm pipeline python app.py --video data/samples/test_video.m
 ## Setup From Scratch (New Machine)
 
 ```powershell
-# 1. Python 3.11 venv (NOT 3.13 — no torch/paddle wheels for 3.13)
+# 1. Python 3.11 venv (NOT 3.13 — no torch wheels for 3.13)
 py -3.11 -m venv venv
 .\venv\Scripts\activate
 
@@ -299,10 +324,12 @@ python scripts/download_models.py
 
 # 5. Place trained weights in models/weights/
 #    helmet_yolov8.pt + plate_yolov8.pt (from Colab — see docs/COLAB_GUIDE.md)
+#    seatbelt_yolov11s.pt (auto-downloaded from HuggingFace on first run)
 
 # 6. Set up camera zones (run once per camera)
 python scripts/draw_zones.py --video data\samples\test_video.mp4
 # Paste output into configs/cameras.yaml
+# OR use the Camera Setup tab in: streamlit run streamlit_app.py
 
 # 7. Run
 python app.py --video data\samples\test_video.mp4 --show
@@ -322,11 +349,12 @@ See `docs/COLAB_GUIDE.md` for step-by-step.
 
 ## Known Limitations
 
-- **Seatbelt**: `indeterminate` until binary CNN trained (~300 labelled windshield crops needed)
+- **Seatbelt**: YOLO11s classifier from HuggingFace (RISEF/yolov11s-seatbelt) is working but marks `indeterminate` when windshield crop is too small. Always requires 2 recheck cycles to confirm.
 - **Auto-rickshaw**: COCO has no such class; falls under `motorcycle` / `car`
 - **Rain handling**: classical filter only (median blur + unsharp); not a deraining network
 - **Signal detection**: HSV-based; may fail under overexposure or night wash-out
 - **Parking dwell timer**: resets on track ID switch under occlusion
+- **Streamlit cloud app**: geometry violations (stop-line, parking) require camera zones to be configured in the Camera Setup tab first; wrong-side and red-light only run in the full local pipeline
 
 ---
 
@@ -337,13 +365,14 @@ See `docs/COLAB_GUIDE.md` for step-by-step.
 | Vehicle/person detection | YOLO11s (Ultralytics) — pretrained COCO |
 | Plate detection | YOLO — Colab-trained, class `License_Plate` |
 | Helmet detection | YOLO — Colab-trained, full-frame + association |
-| Seatbelt | Custom `_SeatbeltCNN` (PyTorch) — 3-layer CNN |
+| Seatbelt | YOLO11s classify — `RISEF/yolov11s-seatbelt` (HuggingFace, auto-downloaded) |
 | Tracking | Self-contained greedy IoU tracker |
 | OCR | EasyOCR (GPU via torch) |
 | Preprocessing | OpenCV (CLAHE, Laplacian, median blur) |
 | Database | SQLite via SQLAlchemy |
-| Dashboard | Streamlit |
-| Optimization | `TrackMemory` — per-track result caching with occlusion recheck logic |
+| Dashboard | Streamlit (local analytics: `dashboard/app.py`) |
+| Cloud Demo | Streamlit 4-tab app (`streamlit_app.py`) — Detect, Camera Setup, How It Works, Try Sample |
+| Optimization | `TrackMemory` — per-track caching, confirm counters, occlusion recheck |
 | Deployment | Docker + docker-compose |
 | Evaluation | scikit-learn + custom mAP (np.trapezoid) |
 | Tests | pytest (36/36 passing) |
@@ -356,7 +385,6 @@ See `docs/COLAB_GUIDE.md` for step-by-step.
 |------|----------|
 | Plate model mAP metrics (screenshot for report) | High |
 | Real Indian traffic video with riders + plates for demo | High |
-| Camera zone setup on actual footage (`draw_zones.py`) | High |
 | `notebooks/03_evaluation.ipynb` | Medium |
-| Seatbelt dataset collection + CNN training | Low |
+| Seatbelt dataset collection (optional — HF model is working) | Low |
 | Auto-rickshaw fine-tuning (IDD dataset) | Low |
