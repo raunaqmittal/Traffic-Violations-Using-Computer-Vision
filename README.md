@@ -42,7 +42,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 # 3. Install remaining dependencies
 pip install -r requirements.txt
 
-# 4. Download pretrained model weights
+# 4. Download the pretrained model weights
 python scripts/download_models.py
 # The seatbelt model was locally fine-tuned (seatbelt_finetuned.pt).
 
