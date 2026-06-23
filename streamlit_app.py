@@ -172,6 +172,17 @@ def _annotate(frame, dets, violations, plates, zones=None):
             cx = int(pts[:, 0].mean())
             cy = int(pts[:, 1].mean())
             cv2.putText(img, "NO PARK", (cx - 30, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 200), 1)
+        direction = zones.get("allowed_direction")
+        if direction is not None:
+            h, w = img.shape[:2]
+            cx, cy = w // 2, h // 2
+            rad = math.radians(direction)
+            length = min(w, h) // 4
+            dx = int(math.cos(rad) * length)
+            dy = int(math.sin(rad) * length)
+            cv2.arrowedLine(img, (cx, cy), (cx + dx, cy + dy), (255, 0, 255), 4, tipLength=0.2)
+            cv2.putText(img, f"LEGAL DIRECTION: {direction} deg", (cx - 50, cy - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
     return img
 
 
