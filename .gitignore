@@ -38,7 +38,11 @@ ENV/
 *.h5
 *.pkl
 *.bin
+*.pt
 *.safetensors
+
+# Allow our small, custom fine-tuned model to be pushed to GitHub
+!models/weights/seatbelt_finetuned.safetensors
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Raw Video / Image Data (large files)
@@ -137,3 +141,4 @@ htmlcov/
 # Ignore docs except context.md
 docs/*.md
 !docs/context.md
+!models/weights/seatbelt_finetuned.pt
