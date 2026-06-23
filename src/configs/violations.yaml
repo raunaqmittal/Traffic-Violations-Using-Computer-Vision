@@ -14,14 +14,11 @@ violations:
 
   seatbelt:
     enabled: true
-    # NOTE: The pretrained seatbelt model (RISEF/yolov11s-seatbelt) was trained
-    # on eye-level dashcam images. Deployed from an overhead traffic camera, it
-    # produces overconfident but wrong predictions (e.g. conf=1.0 on wrong car).
-    # Threshold raised to 0.97 so all seatbelt detections go to human review
-    # until the model is fine-tuned on overhead-angle training data.
-    auto_approve_confidence: 0.97
-    hf_model_repo: "RISEF/yolov11s-seatbelt"
-    hf_model_cache: "models/weights/seatbelt_yolov11s.pt"
+    auto_approve_confidence: 0.90
+    # Uses the model fine-tuned specifically on overhead CCTV windshield crops
+    # (Trained via notebooks/finetune_seatbelt_local.py)
+    hf_model_repo: ""  # Local override
+    hf_model_cache: "models/weights/seatbelt_finetuned.pt"
     hf_model_filename: "weights/best.pt"
     windshield_top_fraction: 0.15
     windshield_bottom_fraction: 0.55
