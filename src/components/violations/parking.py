@@ -11,9 +11,11 @@ from src.models import TrackedObject, ViolationRecord
 from src.components.violations.classifier import route
 
 
-# dwell_tracker[track_id] = (zone_name, entry_frame)
-_dwell_tracker: dict[int, tuple[str, int]] = {}
-_already_flagged: set[int] = set()
+# State is keyed by (camera_id, track_id) so that track IDs from different
+# cameras never collide in a multi-camera deployment.
+# dwell_tracker[(camera_id, track_id)] = (zone_name, entry_frame)
+_dwell_tracker: dict[tuple[str, int], tuple[str, int]] = {}
+_already_flagged: set[tuple[str, int]] = set()
 
 
 def check(
@@ -35,7 +37,8 @@ def check(
     for track in tracks:
         if track.class_name not in vehicle_classes:
             continue
-        if track.track_id in _already_flagged:
+        key = (camera_id, track.track_id)
+        if key in _already_flagged:
             continue
 
         cx, cy = _centroid(track.bbox)
@@ -49,21 +52,21 @@ def check(
 
         if zone_match is None:
             # Outside all zones — reset dwell timer
-            _dwell_tracker.pop(track.track_id, None)
+            _dwell_tracker.pop(key, None)
             continue
 
         if not _is_stationary(track.centroid_history, stationary_pixel_threshold):
             # Moving through zone — reset timer
-            _dwell_tracker.pop(track.track_id, None)
+            _dwell_tracker.pop(key, None)
             continue
 
-        if track.track_id not in _dwell_tracker:
-            _dwell_tracker[track.track_id] = (zone_match["name"], frame_id)
+        if key not in _dwell_tracker:
+            _dwell_tracker[key] = (zone_match["name"], frame_id)
             continue
 
-        zone_name, entry_frame = _dwell_tracker[track.track_id]
+        zone_name, entry_frame = _dwell_tracker[key]
         if frame_id - entry_frame >= dwell_frames:
-            _already_flagged.add(track.track_id)
+            _already_flagged.add(key)
             record = ViolationRecord(
                 violation_type="illegal_parking",
                 confidence=1.0,

@@ -14,7 +14,8 @@ from src.components.violations.classifier import route
 from src.components.violations.signal_utils import detect_signal_state
 
 
-_ALREADY_FLAGGED: set[int] = set()
+# Keyed by (camera_id, track_id) so track IDs never collide across cameras.
+_ALREADY_FLAGGED: set[tuple[str, int]] = set()
 
 
 def check(
@@ -30,8 +31,12 @@ def check(
 ) -> list[ViolationRecord]:
     violations: list[ViolationRecord] = []
 
+    # A stop-line violation requires a CONFIRMED red signal. We deliberately do
+    # NOT flag on "unknown": that is the default state when the signal ROI is
+    # unconfigured or washed out, and flagging on it would mark every vehicle
+    # crossing the line as a violator (mass false positives).
     signal = detect_signal_state(frame, signal_roi, red_pixel_fraction, green_pixel_fraction)
-    if signal == "green":
+    if signal != "red":
         return violations
 
     vehicle_classes = {"car", "truck", "bus", "motorcycle", "auto-rickshaw", "three-wheeler"}
@@ -41,17 +46,20 @@ def check(
     for track in tracks:
         if track.class_name not in vehicle_classes:
             continue
-        if track.track_id in _ALREADY_FLAGGED:
+        key = (camera_id, track.track_id)
+        if key in _ALREADY_FLAGGED:
             continue
 
         cx, cy = _centroid(track.bbox)
         signed_dist = _signed_distance_to_line(p1, p2, (cx, cy))
 
         if signed_dist > crossing_margin_px:
-            _ALREADY_FLAGGED.add(track.track_id)
+            _ALREADY_FLAGGED.add(key)
             record = ViolationRecord(
+                # Confidence reflects how confident the detector was in the
+                # vehicle itself; the geometric/signal test is then a hard gate.
                 violation_type="stop_line",
-                confidence=0.93 if signal == "red" else 0.75,
+                confidence=round(0.90 * float(track.confidence) + 0.10, 3),
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -62,9 +70,13 @@ def check(
     return violations
 
 
-def reset_flagged():
-    """Call this when processing a new video clip."""
-    _ALREADY_FLAGGED.clear()
+def reset_flagged(camera_id: str | None = None):
+    """Clear flagged state. Pass a camera_id to clear only that camera."""
+    if camera_id is None:
+        _ALREADY_FLAGGED.clear()
+    else:
+        for key in [k for k in _ALREADY_FLAGGED if k[0] == camera_id]:
+            _ALREADY_FLAGGED.discard(key)
 
 
 def _centroid(bbox: tuple) -> tuple[int, int]:

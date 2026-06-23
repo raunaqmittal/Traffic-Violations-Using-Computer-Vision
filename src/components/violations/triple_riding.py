@@ -27,11 +27,14 @@ def check(
     persons = [t for t in tracks if t.class_name == "person"]
 
     for moto in motorcycles:
-        riders = [p for p in persons if _containment(moto.bbox, p.bbox) >= min_overlap_ratio]
+        riders = [p for p in persons if _is_rider(moto.bbox, p.bbox, min_overlap_ratio)]
         if len(riders) >= 3:
+            # Confidence is gated by the weakest underlying detection: a triple
+            # built from low-confidence person boxes should not auto-flag.
+            min_det_conf = min([moto.confidence] + [p.confidence for p in riders])
             record = ViolationRecord(
                 violation_type="triple_riding",
-                confidence=1.0,
+                confidence=round(float(min_det_conf), 3),
                 vehicle_id=moto.track_id,
                 bbox=moto.bbox,
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -40,6 +43,22 @@ def check(
             )
             violations.append(route(record))
     return violations
+
+
+def _is_rider(moto_box: tuple, person_box: tuple, min_overlap_ratio: float) -> bool:
+    """
+    A person counts as a rider of this motorcycle only if:
+      1. Their box is substantially contained in the motorcycle box, AND
+      2. Their horizontal centre lies within the motorcycle's x-span.
+    The second test rejects pedestrians and riders of an adjacent bike that
+    merely overlap the box from the side in 2D image space.
+    """
+    if _containment(moto_box, person_box) < min_overlap_ratio:
+        return False
+    ax1, _, ax2, _ = moto_box
+    bx1, _, bx2, _ = person_box
+    pcx = (bx1 + bx2) / 2
+    return ax1 <= pcx <= ax2
 
 
 def _containment(moto_box: tuple, person_box: tuple) -> float:

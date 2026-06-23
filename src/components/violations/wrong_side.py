@@ -14,7 +14,7 @@ from src.components.violations.classifier import route
 def check(
     tracks: list[TrackedObject],
     frame_id: int,
-    allowed_direction_deg: float,
+    allowed_direction_deg,
     direction_tolerance_deg: float,
     min_track_frames: int = 8,
     consecutive_wrong_frames: int = 5,
@@ -22,6 +22,14 @@ def check(
 ) -> list[ViolationRecord]:
     violations: list[ViolationRecord] = []
     vehicle_classes = {"car", "truck", "bus", "motorcycle", "auto-rickshaw", "three-wheeler"}
+
+    # A road can be two-way / multi-lane, so more than one direction may be
+    # legal. Accept either a single angle or a list of allowed angles; a vehicle
+    # is only flagged if it disagrees with EVERY allowed direction.
+    if isinstance(allowed_direction_deg, (list, tuple)):
+        allowed_dirs = [float(a) for a in allowed_direction_deg]
+    else:
+        allowed_dirs = [float(allowed_direction_deg)]
 
     for track in tracks:
         if track.class_name not in vehicle_classes:
@@ -33,13 +41,16 @@ def check(
         # Count consecutive wrong-direction frames at the tail of the history
         wrong_count = _count_consecutive_wrong(
             history,
-            allowed_direction_deg,
+            allowed_dirs,
             direction_tolerance_deg,
         )
         if wrong_count >= consecutive_wrong_frames:
+            # More consecutive wrong-direction frames = stronger evidence;
+            # also weighted by how confident the detector was in the vehicle.
+            evidence = min(0.70 + 0.03 * wrong_count, 1.0)
             record = ViolationRecord(
                 violation_type="wrong_side",
-                confidence=min(0.70 + 0.03 * wrong_count, 1.0),
+                confidence=round(evidence * float(track.confidence), 3),
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -52,10 +63,10 @@ def check(
 
 def _count_consecutive_wrong(
     history: list[tuple[int, int]],
-    allowed_deg: float,
+    allowed_dirs: list[float],
     tolerance_deg: float,
 ) -> int:
-    """Count how many consecutive tail-frames have wrong-direction motion."""
+    """Count how many consecutive tail-frames move against ALL allowed directions."""
     count = 0
     for i in range(len(history) - 1, 0, -1):
         dx = history[i][0] - history[i - 1][0]
@@ -65,9 +76,15 @@ def _count_consecutive_wrong(
             continue
         # Image coords: y increases downward, so flip dy for standard angles
         angle = math.degrees(math.atan2(-dy, dx)) % 360
-        diff = abs(angle - allowed_deg) % 360
-        diff = min(diff, 360 - diff)
-        if diff > tolerance_deg:
+        # Within tolerance of ANY legal direction -> this frame is fine.
+        matches_any = False
+        for allowed_deg in allowed_dirs:
+            diff = abs(angle - allowed_deg) % 360
+            diff = min(diff, 360 - diff)
+            if diff <= tolerance_deg:
+                matches_any = True
+                break
+        if not matches_any:
             count += 1
         else:
             break

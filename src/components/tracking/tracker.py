@@ -29,14 +29,18 @@ class Tracker:
         track_buffer: int = 30,
         match_thresh: float = 0.80,
         iou_gate: float = 0.3,
+        centroid_gate: float = 1.5,
     ):
         # track_thresh: minimum detection confidence to track.
         # track_buffer: frames to keep a lost track alive before dropping it.
         # match_thresh: retained for config compatibility (ByteTrack-era param).
         # iou_gate: minimum IoU for a detection to match an existing track.
+        # centroid_gate: fallback match distance, as a multiple of the track's
+        #                largest box dimension, used when IoU matching fails.
         self._track_thresh = track_thresh
         self._track_buffer = track_buffer
         self._iou_gate = iou_gate
+        self._centroid_gate = centroid_gate
 
         self._next_id = 1
         # tid -> {"bbox", "class_name", "score", "last_frame"}
@@ -59,6 +63,35 @@ class Tracker:
         matched_dets: set[int] = set()
         det_to_tid: dict[int, int] = {}
         for iou, tid, di in candidates:
+            if tid in matched_tids or di in matched_dets:
+                continue
+            matched_tids.add(tid)
+            matched_dets.add(di)
+            det_to_tid[di] = tid
+
+        # Second pass: centroid-distance fallback for tracks/detections that IoU
+        # failed to match. Frame subsampling (target_fps << source fps) moves a
+        # fast object far enough that boxes no longer overlap (IoU = 0), which
+        # would spawn a new ID every cycle and break direction/dwell history.
+        # We rescue those by matching on centroid proximity, gated to the same
+        # class and a distance proportional to the track's box size.
+        dist_candidates = []
+        for tid, info in self._tracks.items():
+            if tid in matched_tids:
+                continue
+            tx1, ty1, tx2, ty2 = info["bbox"]
+            tcx, tcy = (tx1 + tx2) / 2, (ty1 + ty2) / 2
+            gate = self._centroid_gate * max(tx2 - tx1, ty2 - ty1, 1)
+            for di, d in enumerate(dets):
+                if di in matched_dets or d.class_name != info["class_name"]:
+                    continue
+                dx1, dy1, dx2, dy2 = d.bbox
+                dcx, dcy = (dx1 + dx2) / 2, (dy1 + dy2) / 2
+                dist = ((tcx - dcx) ** 2 + (tcy - dcy) ** 2) ** 0.5
+                if dist <= gate:
+                    dist_candidates.append((dist, tid, di))
+        dist_candidates.sort()
+        for dist, tid, di in dist_candidates:
             if tid in matched_tids or di in matched_dets:
                 continue
             matched_tids.add(tid)
