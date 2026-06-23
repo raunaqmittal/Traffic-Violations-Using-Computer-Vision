@@ -13,7 +13,8 @@ from src.components.violations.classifier import route
 from src.components.violations.signal_utils import detect_signal_state
 
 
-_ALREADY_FLAGGED: set[int] = set()
+# Keyed by (camera_id, track_id) so track IDs never collide across cameras.
+_ALREADY_FLAGGED: set[tuple[str, int]] = set()
 
 
 def check(
@@ -41,7 +42,8 @@ def check(
     for track in tracks:
         if track.class_name not in vehicle_classes:
             continue
-        if track.track_id in _ALREADY_FLAGGED:
+        key = (camera_id, track.track_id)
+        if key in _ALREADY_FLAGGED:
             continue
         if not _is_moving(track.centroid_history, stationary_pixel_threshold):
             continue
@@ -50,10 +52,10 @@ def check(
         signed_dist = _signed_distance_to_line(p1, p2, (cx, cy))
 
         if signed_dist > crossing_margin_px:
-            _ALREADY_FLAGGED.add(track.track_id)
+            _ALREADY_FLAGGED.add(key)
             record = ViolationRecord(
                 violation_type="red_light",
-                confidence=0.95,
+                confidence=round(0.90 * float(track.confidence) + 0.10, 3),
                 vehicle_id=track.track_id,
                 bbox=track.bbox,
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -64,8 +66,13 @@ def check(
     return violations
 
 
-def reset_flagged():
-    _ALREADY_FLAGGED.clear()
+def reset_flagged(camera_id: str | None = None):
+    """Clear flagged state. Pass a camera_id to clear only that camera."""
+    if camera_id is None:
+        _ALREADY_FLAGGED.clear()
+    else:
+        for key in [k for k in _ALREADY_FLAGGED if k[0] == camera_id]:
+            _ALREADY_FLAGGED.discard(key)
 
 
 def _centroid(bbox: tuple) -> tuple[int, int]:
@@ -74,8 +81,11 @@ def _centroid(bbox: tuple) -> tuple[int, int]:
 
 
 def _is_moving(history: list[tuple[int, int]], threshold: int) -> bool:
+    # Conservative: with too little history we cannot confirm motion, so we do
+    # NOT flag. A freshly-appeared track sitting past the line must not be
+    # treated as "ran the light" until we actually observe it moving.
     if len(history) < 3:
-        return True
+        return False
     recent = history[-3:]
     for i in range(1, len(recent)):
         dx = abs(recent[i][0] - recent[i - 1][0])

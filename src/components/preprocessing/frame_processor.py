@@ -33,10 +33,13 @@ def process_frame(
 
     Returns the processed frame and a FrameQuality struct.
     """
-    processed = _apply_clahe(frame, clahe_clip_limit, clahe_tile_size)
-
-    blur_score = _laplacian_variance(processed)
+    # Measure blur on the ORIGINAL frame. Running it after CLAHE inflates local
+    # contrast and the Laplacian variance, so genuinely blurry frames would
+    # falsely pass the sharpness threshold.
+    blur_score = _laplacian_variance(frame)
     is_blurry = blur_score < blur_threshold
+
+    processed = _apply_clahe(frame, clahe_clip_limit, clahe_tile_size)
 
     rain_applied = False
     if apply_rain_filter:

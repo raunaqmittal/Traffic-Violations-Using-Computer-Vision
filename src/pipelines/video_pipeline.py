@@ -108,6 +108,7 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
             windshield_bottom_fraction=violation_cfg["seatbelt"]["windshield_bottom_fraction"],
             min_crop_width=violation_cfg["seatbelt"]["min_crop_width"],
             min_crop_height=violation_cfg["seatbelt"]["min_crop_height"],
+            expected_sha256=violation_cfg["seatbelt"].get("expected_sha256") or None,
         )
         plate_reader = PlateReader(use_gpu=(inf_cfg["device"] != "cpu"))
         evidence_gen = EvidenceGenerator(ev_cfg["save_dir"], ev_cfg["jpeg_quality"])
@@ -231,14 +232,28 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
                 continue
 
             v.is_blurry = quality.is_blurry
+            # A blurry frame is weak evidence — never auto-flag it; route to review.
+            if v.is_blurry and v.status == "auto_flagged":
+                v.status = "review"
 
-            # Plate caching: reuse OCR result if we already read this vehicle's plate.
+            # Plate caching: reuse a cached read only if it was a good one (valid
+            # format, decent confidence). Otherwise re-read — a single garbage
+            # OCR result must not be locked in for all of a vehicle's violations.
             mem_state = memory.get(v.vehicle_id)
-            if mem_state and mem_state.plate_number is not None:
+            _PLATE_CACHE_MIN_CONF = 0.5
+            cached_ok = (
+                mem_state
+                and mem_state.plate_number is not None
+                and mem_state.plate_confidence >= _PLATE_CACHE_MIN_CONF
+            )
+            if cached_ok:
                 v.plate_number = mem_state.plate_number
                 v.plate_confidence = mem_state.plate_confidence
             else:
-                plate_dets = plate_detector.detect_in_vehicle_crop(processed_frame, v.bbox, frame_idx)
+                # Helmet violations carry the tight head box in `bbox`; run ANPR
+                # on the full motorcycle (anpr_bbox) so a plate can be found.
+                anpr_region = v.anpr_bbox or v.bbox
+                plate_dets = plate_detector.detect_in_vehicle_crop(processed_frame, anpr_region, frame_idx)
                 if plate_dets:
                     best_plate = plate_dets[0]
                     px1, py1, px2, py2 = best_plate.bbox
@@ -247,7 +262,9 @@ def run(source: str, camera_id: str = "cam_001", dry_run: bool = False, show: bo
                     if plate_result:
                         v.plate_number = plate_result.text
                         v.plate_confidence = plate_result.confidence
-                        if mem_state:
+                        # Cache only confident, well-formed reads so they can be
+                        # reused; keep re-reading low-quality ones.
+                        if mem_state and plate_result.is_valid and plate_result.confidence >= _PLATE_CACHE_MIN_CONF:
                             mem_state.plate_number = plate_result.text
                             mem_state.plate_confidence = plate_result.confidence
 

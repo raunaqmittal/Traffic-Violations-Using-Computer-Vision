@@ -58,14 +58,35 @@ _CLASS_TO_LABEL = {
 }
 
 
-def _download_hf_model(cache_path: str) -> str | None:
+def _sha256_file(path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _download_hf_model(cache_path: str, expected_sha256: str | None = None) -> str | None:
     """
     Download RISEF/yolov11s-seatbelt from HuggingFace Hub to *cache_path*.
     Returns the resolved local path on success, or None on failure.
+
+    Security: a .pt file is loaded via torch.load (pickle) and can execute
+    arbitrary code. When *expected_sha256* is provided we verify the file and
+    refuse to use it on mismatch. Otherwise we log the observed hash so it can
+    be pinned in config for future runs.
     """
     dest = Path(cache_path)
     if dest.exists():
-        log.info("Seatbelt model already cached at %s", dest)
+        digest = _sha256_file(dest)
+        if expected_sha256 and digest.lower() != expected_sha256.lower():
+            log.error(
+                "Seatbelt model hash mismatch at %s (got %s, expected %s) — refusing to load.",
+                dest, digest, expected_sha256,
+            )
+            return None
+        log.info("Seatbelt model cached at %s (sha256=%s)", dest, digest)
         return str(dest)
 
     try:
@@ -90,7 +111,15 @@ def _download_hf_model(cache_path: str) -> str | None:
         # Copy to the configured cache location so the pipeline can find it later.
         import shutil
         shutil.copy2(tmp_path, dest)
-        log.info("Seatbelt model saved to %s", dest)
+        digest = _sha256_file(dest)
+        if expected_sha256 and digest.lower() != expected_sha256.lower():
+            log.error(
+                "Downloaded seatbelt model hash mismatch (got %s, expected %s) — refusing to load.",
+                digest, expected_sha256,
+            )
+            dest.unlink(missing_ok=True)
+            return None
+        log.info("Seatbelt model saved to %s (sha256=%s)", dest, digest)
         return str(dest)
     except Exception as exc:
         log.error("Failed to download seatbelt model: %s", exc)
@@ -124,6 +153,7 @@ class SeatbeltChecker:
         windshield_bottom_fraction: float = 0.55,
         min_crop_width: int = 60,
         min_crop_height: int = 40,
+        expected_sha256: str | None = None,
     ):
         self.conf = conf_threshold
         self.device = device
@@ -131,6 +161,7 @@ class SeatbeltChecker:
         self.bot_frac = windshield_bottom_fraction
         self.min_w = min_crop_width
         self.min_h = min_crop_height
+        self.expected_sha256 = expected_sha256
         self.model = self._init_model(model_path)
 
     # ------------------------------------------------------------------
@@ -195,6 +226,7 @@ class SeatbeltChecker:
 
             if track_memory is not None:
                 state = track_memory.get_or_create(car.track_id, "car")
+                first_check = not state.seatbelt_checked
                 state.seatbelt_checked = True
                 state.seatbelt_status = label
                 state.seatbelt_confidence = confidence
@@ -222,9 +254,14 @@ class SeatbeltChecker:
                     )
                     violations.append(route(record))
                     state.seatbelt_violation_emitted = True
+                elif label == "indeterminate" and first_check:
+                    # Model too uncertain to decide — send to review once per car.
+                    violations.append(self._indeterminate(car, frame_id, camera_id))
             else:
                 # No TrackMemory — emit immediately (single-frame mode, e.g. cloud demo).
-                if label == "no_seatbelt":
+                if label == "indeterminate":
+                    violations.append(self._indeterminate(car, frame_id, camera_id))
+                elif label == "no_seatbelt":
                     record = ViolationRecord(
                         violation_type="seatbelt",
                         confidence=confidence,
@@ -250,7 +287,7 @@ class SeatbeltChecker:
         - If model_path is None ? use default HF cache path and auto-download.
         """
         cache_path = model_path or os.path.join("models", "weights", "seatbelt_yolov11s.pt")
-        resolved = _download_hf_model(cache_path)
+        resolved = _download_hf_model(cache_path, expected_sha256=self.expected_sha256)
         if resolved is None:
             log.warning(
                 "Seatbelt model unavailable — all results will be 'indeterminate'."
@@ -307,9 +344,10 @@ class SeatbeltChecker:
 
         internal_label = _CLASS_TO_LABEL.get(raw_name.lower(), "seatbelt")
 
-        # Apply local conf_threshold: if the model is uncertain, fall back to seatbelt
+        # If the model is uncertain, do NOT assume compliance — that would
+        # silently drop real violations (false negatives). Route to human review.
         if top1_conf < self.conf:
-            return top1_conf, "seatbelt"
+            return top1_conf, "indeterminate"
 
         return top1_conf, internal_label
 

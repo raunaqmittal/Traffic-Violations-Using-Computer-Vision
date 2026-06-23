@@ -7,6 +7,30 @@ from src.evaluation.metrics import (
     average_precision,
     classification_metrics,
 )
+from src.components.ocr.plate_reader import normalize_plate
+
+
+class TestPlateNormalization:
+    def test_valid_plate_passes(self):
+        text, valid = normalize_plate("MH12AB1234")
+        assert text == "MH12AB1234" and valid is True
+
+    def test_strips_separators_and_case(self):
+        text, valid = normalize_plate("ka-01 a 1234")
+        assert text == "KA01A1234" and valid is True
+
+    def test_short_series_plate(self):
+        _, valid = normalize_plate("DL3CAB1234")
+        assert valid is True
+
+    def test_shop_sign_text_rejected(self):
+        # Merged junk that is not a plate format must be flagged invalid.
+        _, valid = normalize_plate("OPENSALE")
+        assert valid is False
+
+    def test_too_short_rejected(self):
+        _, valid = normalize_plate("MH12")
+        assert valid is False
 
 
 class TestOCRAccuracy:

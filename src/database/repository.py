@@ -27,6 +27,7 @@ def insert_violation(record: ViolationRecord, engine: Engine) -> int:
         "is_blurry": record.is_blurry,
         "evidence_image_path": record.evidence_image_path,
         "evidence_json_path": record.evidence_json_path,
+        "evidence_sha256": record.evidence_sha256,
     }
     with engine.connect() as conn:
         result = conn.execute(violations_table.insert().values(**row))

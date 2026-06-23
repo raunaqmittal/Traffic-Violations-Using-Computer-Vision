@@ -33,6 +33,7 @@ violations_table = Table(
     Column("is_blurry", Boolean, default=False),
     Column("evidence_image_path", Text),
     Column("evidence_json_path", Text),
+    Column("evidence_sha256", String(64)),
 )
 
 
