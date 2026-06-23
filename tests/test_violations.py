@@ -78,6 +78,45 @@ class TestWrongSide:
         )
         assert len(result) == 0
 
+    def test_two_way_road_both_directions_allowed(self):
+        from src.components.violations import wrong_side
+        # Two-way road: up (90) and down (270) are both legal. A car moving
+        # down must NOT be flagged when 270 is in the allowed list.
+        history = [(200, 100 + i * 5) for i in range(15)]  # moving down
+        track = _make_track(1, "car", (180, 250, 220, 270), history=history)
+        result = wrong_side.check(
+            [track], frame_id=50,
+            allowed_direction_deg=[90, 270],
+            direction_tolerance_deg=30,
+            min_track_frames=8,
+            consecutive_wrong_frames=5,
+        )
+        assert len(result) == 0
+
+
+# ── Camera-keyed state (no cross-camera collision) ───────────────────────────
+
+class TestCameraKeyedState:
+    def test_stop_line_same_track_id_two_cameras(self):
+        from src.components.violations import stop_line
+        stop_line.reset_flagged()
+        with patch.object(stop_line, "detect_signal_state", return_value="red"):
+            track = _make_track(1, "car", (90, 120, 110, 140))
+            line = [[0, 110], [200, 110]]
+            v1 = stop_line.check([track], None, 1, line, (0, 0, 1, 1), camera_id="cam_A")
+            # Same track_id on a different camera must still be flagged.
+            v2 = stop_line.check([track], None, 1, line, (0, 0, 1, 1), camera_id="cam_B")
+        assert len(v1) == 1 and len(v2) == 1
+
+    def test_stop_line_not_flagged_when_signal_unknown(self):
+        from src.components.violations import stop_line
+        stop_line.reset_flagged()
+        with patch.object(stop_line, "detect_signal_state", return_value="unknown"):
+            track = _make_track(5, "car", (90, 120, 110, 140))
+            line = [[0, 110], [200, 110]]
+            v = stop_line.check([track], None, 1, line, (0, 0, 1, 1), camera_id="cam_A")
+        assert len(v) == 0
+
 
 # ── Classifier routing ──────────────────────────────────────────────────────
 

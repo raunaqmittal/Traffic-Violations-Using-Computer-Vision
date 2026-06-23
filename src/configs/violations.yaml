@@ -20,6 +20,10 @@ violations:
     hf_model_repo: ""  # Local override
     hf_model_cache: "models/weights/seatbelt_finetuned.pt"
     hf_model_filename: "weights/best.pt"
+    # Optional: pin the SHA-256 of the model weights. A .pt is loaded via pickle
+    # and can run arbitrary code, so verifying the hash prevents a swapped/
+    # tampered download from being loaded. Leave empty to skip (hash is logged).
+    expected_sha256: ""
     windshield_top_fraction: 0.15
     windshield_bottom_fraction: 0.55
     min_crop_width: 60

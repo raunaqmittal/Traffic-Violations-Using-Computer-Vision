@@ -7,6 +7,7 @@ saves a JPEG, writes a JSON sidecar, and updates the record with paths.
 import cv2
 import json
 import os
+import hashlib
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +26,14 @@ _VIOLATION_COLORS = {
 _DEFAULT_COLOR = (0, 200, 0)
 
 
+def _sha256_file(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 class EvidenceGenerator:
     def __init__(self, save_dir: str, jpeg_quality: int = 85):
         self.save_dir = Path(save_dir)
@@ -35,9 +44,17 @@ class EvidenceGenerator:
         annotated = self._annotate(frame.copy(), record)
         stem = self._make_stem(record)
         img_path = self.save_dir / f"{stem}.jpg"
+        raw_path = self.save_dir / f"{stem}_raw.jpg"
         json_path = self.save_dir / f"{stem}.json"
 
+        # Keep the unannotated original alongside the annotated image: the raw
+        # frame is the actual evidence, the annotation is interpretation.
+        cv2.imwrite(str(raw_path), frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
         cv2.imwrite(str(img_path), annotated, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
+
+        # SHA-256 of the saved annotated image for tamper-evidence / chain of custody.
+        sha256 = _sha256_file(img_path)
+        record.evidence_sha256 = sha256
 
         metadata = {
             "violation_type": record.violation_type,
@@ -52,6 +69,9 @@ class EvidenceGenerator:
             "bbox": list(record.bbox),
             "is_blurry": record.is_blurry,
             "evidence_image": str(img_path),
+            "raw_image": str(raw_path),
+            "evidence_sha256": sha256,
+            "raw_sha256": _sha256_file(raw_path),
         }
         with open(json_path, "w") as f:
             json.dump(metadata, f, indent=2)

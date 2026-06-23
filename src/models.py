@@ -41,3 +41,9 @@ class ViolationRecord:
     evidence_json_path: Optional[str] = None
     is_blurry: bool = False
     camera_id: str = "cam_001"
+    # Region to run license-plate detection/OCR on. For most violations this is
+    # the vehicle bbox itself. For helmet (where `bbox` is the tight head box),
+    # this holds the full motorcycle box so ANPR can actually find a plate.
+    anpr_bbox: Optional[tuple[int, int, int, int]] = None
+    # SHA-256 of the saved evidence image, written for tamper-evidence / chain of custody.
+    evidence_sha256: Optional[str] = None

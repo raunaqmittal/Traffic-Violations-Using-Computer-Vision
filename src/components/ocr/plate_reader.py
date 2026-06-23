@@ -17,6 +17,21 @@ class PlateReadResult:
     text: str
     confidence: float
     is_partial: bool
+    is_valid: bool = False   # matches the Indian plate format after normalisation
+
+
+# Indian registration plate: 2-letter state, 1-2 digit RTO, 1-3 letter series,
+# 1-4 digit number. e.g. MH12AB1234, KA01A1234, DL3CAB1234.
+_PLATE_RE = re.compile(r"^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{1,4}$")
+
+
+def normalize_plate(raw: str) -> tuple[str, bool]:
+    """
+    Uppercase, strip non-alphanumerics, and test against the Indian plate
+    format. Returns (cleaned_text, is_valid).
+    """
+    cleaned = re.sub(r"[^A-Z0-9]", "", raw.upper())
+    return cleaned, bool(_PLATE_RE.match(cleaned))
 
 
 class PlateReader:
@@ -49,10 +64,12 @@ class PlateReader:
 
         combined_text = "".join(texts)
         avg_conf = sum(confidences) / len(confidences)
-        is_partial = len(combined_text) < 4
+        normalized, is_valid = normalize_plate(combined_text)
+        is_partial = len(normalized) < 4
 
         return PlateReadResult(
-            text=combined_text,
+            text=normalized,
             confidence=avg_conf,
             is_partial=is_partial,
+            is_valid=is_valid,
         )
