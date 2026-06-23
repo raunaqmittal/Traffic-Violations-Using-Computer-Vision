@@ -21,6 +21,9 @@ env/
 ENV/
 .env
 
+# Wheel files (large installers, don't commit)
+*.whl
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Model Weights & Large Binary Files
 # GitHub has a 100 MB file size limit and 2 GB repo limit.
@@ -42,6 +45,7 @@ ENV/
 # ──────────────────────────────────────────────────────────────────────────────
 data/raw/
 data/seatbelt_crops/
+final_dataset/
 *.mp4
 *.avi
 *.mov
