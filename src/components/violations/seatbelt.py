@@ -286,7 +286,7 @@ class SeatbeltChecker:
           destination and auto-download.
         - If model_path is None ? use default HF cache path and auto-download.
         """
-        cache_path = model_path or os.path.join("models", "weights", "seatbelt_yolov11s.pt")
+        cache_path = model_path or os.path.join("models", "weights", "seatbelt_finetuned.pt")
         resolved = _download_hf_model(cache_path, expected_sha256=self.expected_sha256)
         if resolved is None:
             log.warning(
