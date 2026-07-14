@@ -378,12 +378,17 @@ def tab_detect(models, device):
     st.header("🎯 Detect Violations")
     zones = st.session_state.get("zones", {})
     has_zones = bool(zones.get("stop_line") or zones.get("parking_zones"))
+    has_direction = zones.get("allowed_direction") is not None
 
-    if has_zones:
-        st.info("✅ Camera zones configured — stop-line and parking violations will also be checked.")
+    if has_zones or has_direction:
+        active = []
+        if zones.get("stop_line"): active.append("stop-line")
+        if zones.get("parking_zones"): active.append("parking")
+        if has_direction: active.append(f"wrong-side ({zones['allowed_direction']}°)")
+        st.info("✅ Camera zones configured — " + ", ".join(active) + " violations will also be checked.")
     else:
         st.info("ℹ️ No camera zones configured. Set them in the **🗺️ Camera Setup** tab to enable "
-                "stop-line and parking checks.")
+                "stop-line, parking, and wrong-side checks.")
 
     uploaded = st.file_uploader(
         "Upload a traffic image or video clip",
@@ -738,9 +743,11 @@ def tab_how_it_works():
          "Head detections are spatially associated to motorcycle bounding boxes "
          "(search area extends 1.2× above the bike box to catch the rider's head). "
          "**Requires 2 confirmation cycles before logging.**"),
-        ("🚗 Seatbelt Non-Compliance", "ML Model", "seatbelt_yolov11s.pt (HuggingFace)",
+        ("🚗 Seatbelt Non-Compliance", "ML Model", "seatbelt_finetuned.pt (locally fine-tuned)",
          "Only runs on `car`, `truck`, `bus` tracks. Crops the windshield ROI "
          "(top 15%–55% of the vehicle bbox) and classifies it as `seatbelt` or `no_seatbelt`. "
+         "Fine-tuned specifically on overhead CCTV windshield crops — achieving **89.2% Top-1 accuracy**. "
+         "Vehicles in side-profile are skipped via aspect-ratio check. "
          "If the crop is too small the result is `indeterminate` (human review queue). "
          "**Requires 2 confirmation cycles. Pedestrians are explicitly excluded.**"),
         ("🏍️ Triple Riding", "Rule-based", "—",
@@ -767,6 +774,23 @@ def tab_how_it_works():
         with st.expander(f"**{title}** — {vtype}"):
             st.markdown(f"**Model/Source:** `{model}`")
             st.markdown(desc)
+
+    st.divider()
+    st.subheader("📊 Model Performance Metrics")
+    st.markdown("Measured, not claimed — all metrics computed on held-out validation sets.")
+    st.table({
+        "Model": [
+            "YOLO11s — Vehicle/Person Detector",
+            "YOLOv8s — Helmet Detector (overall)",
+            "  ↳ rider_no_helmet (violation class)",
+            "YOLO11s-cls — Seatbelt Classifier",
+            "YOLOv8s — License Plate Detector",
+        ],
+        "mAP@50": ["~0.64 (COCO)", "0.578", "**0.88**", "N/A (classifier)", "N/A (not exported)"],
+        "Precision": ["-", "0.61", "**0.83**", "0.87", "-"],
+        "Recall": ["-", "0.51", "**0.80**", "0.91", "-"],
+        "Top-1 Accuracy": ["-", "-", "-", "**89.2%**", "-"],
+    })
 
 
 # ─────────────────────────────────────────────

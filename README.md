@@ -36,8 +36,8 @@ py -3.11 -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Linux/macOS
 
-# 2. Install GPU torch first (Windows / Linux with CUDA 12.1)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# 2. Install GPU torch first (Windows / Linux with CUDA 12.4)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
 # 3. Install remaining dependencies
 pip install -r requirements.txt
@@ -170,15 +170,14 @@ Helmet and seatbelt violations require **2 separate recheck cycles** to agree be
 - **Auto-rickshaw**: Not in COCO — pretrained model uses `motorcycle` as a proxy.
 - **Rain handling**: Classical median blur + sharpen only.
 - **Signal detection**: HSV-based; may misclassify under overexposed or nighttime conditions.
-- **Geometry violations in cloud demo**: Stop-line and parking require camera zones to be set in the Camera Setup tab. Wrong-side and red-light run only in the full local pipeline.
+- **Geometry violations in cloud demo**: Stop-line, parking, and wrong-side checks require camera zones to be set in the Camera Setup tab. Red-light detection requires the full local pipeline (`app.py`).
 - **Multiple cameras**: Supported via `--camera <id>` + separate entries in `cameras.yaml`.
 
 ## Evaluation
 
-See `notebooks/03_evaluation.ipynb`.
+Run `python evaluate_seatbelt.py` to compute per-class Precision/Recall for the seatbelt classifier against the val set.
 
 Metrics computed:
-- mAP@0.5 — vehicle and plate detectors
-- Precision / Recall / F1 — per violation type
-- OCR exact-match accuracy
-- FPS throughput
+- Top-1 Accuracy — seatbelt classifier
+- Precision / Recall / F1 — per violation type (seatbelt: P=0.87, R=0.91)
+- mAP@50 — helmet detector overall: 0.578, `rider_no_helmet` class: 0.88
